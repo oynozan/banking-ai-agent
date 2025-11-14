@@ -1,41 +1,76 @@
-'use client'
+"use client";
 
+import { toast } from "sonner";
+import { useRouter } from "next/navigation";
+import { useEffect, useState } from "react";
+import { Lock, UserRound } from "lucide-react";
+
+import { useUser } from "@/lib/states";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
-import { Lock, Mail } from "lucide-react";
-import { useState } from "react";
 
 export function LoginForm() {
-    const [email, setEmail] = useState("");
+    const router = useRouter();
+    const { user, setUser, setState } = useUser();
+
+    const [id, setID] = useState("");
     const [password, setPassword] = useState("");
     const [isLoading, setIsLoading] = useState(false);
 
-    const handleSubmit = (e: React.FormEvent) => {
+    useEffect(() => {
+        if (user) router.replace("/");
+    }, [user])
+
+    const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
+
         setIsLoading(true);
-        // Simulate login
-        setTimeout(() => {
+        setState("loading");
+
+        const loginResponse = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/public/auth/login`, {
+            method: "POST",
+            body: JSON.stringify({ id, password }),
+        });
+
+        if (!loginResponse.ok) {
+            toast.error("An error occurred during login. Please try again.");
             setIsLoading(false);
-            console.log("Login submitted", { email, password });
-        }, 1500);
+            setState("not_logged_in");
+            return;
+        }
+
+        const loginData = await loginResponse.json();
+
+        if (!loginData.status) {
+            toast.error(loginData.error || "Invalid credentials. Please try again.");
+            setIsLoading(false);
+            setState("not_logged_in");
+            return;
+        }
+
+        // set user data & access token
+        setUser(loginData.user);
+        setState("logged_in");
+
+        localStorage.setItem("accessToken", loginData.accessToken);
+        toast.success("Logged in successfully!");
     };
 
     return (
         <form onSubmit={handleSubmit} className="w-full max-w-md space-y-6">
-            {/* Email Field */}
             <div className="space-y-2">
-                <Label htmlFor="email" className="text-white/90">
-                    Username or Email
+                <Label htmlFor="id" className="text-white/90">
+                    Account ID
                 </Label>
                 <div className="relative">
-                    <Mail className="absolute left-3 top-1/2 -translate-y-1/2 size-5 text-[#FFD700]/60" />
+                    <UserRound className="absolute left-3 top-1/2 -translate-y-1/2 size-5 text-[#FFD700]/60" />
                     <Input
-                        id="email"
-                        type="email"
-                        placeholder="Enter your email"
-                        value={email}
-                        onChange={(e) => setEmail(e.target.value)}
+                        id="id"
+                        type="text"
+                        placeholder="Enter your account ID"
+                        value={id}
+                        onChange={e => setID(e.target.value)}
                         required
                         className="pl-10 bg-white/5 border-white/20 text-white placeholder:text-white/40 focus-visible:border-[#FFD700] focus-visible:ring-[#FFD700]/30 h-12"
                     />
@@ -54,7 +89,7 @@ export function LoginForm() {
                         type="password"
                         placeholder="Enter your password"
                         value={password}
-                        onChange={(e) => setPassword(e.target.value)}
+                        onChange={e => setPassword(e.target.value)}
                         required
                         className="pl-10 bg-white/5 border-white/20 text-white placeholder:text-white/40 focus-visible:border-[#FFD700] focus-visible:ring-[#FFD700]/30 h-12"
                     />
@@ -79,19 +114,6 @@ export function LoginForm() {
             >
                 {isLoading ? "Logging in..." : "Login"}
             </Button>
-
-            {/* Sign Up Link */}
-            <div className="text-center pt-4">
-                <p className="text-sm text-white/60">
-                    Don&#39;t have an account?{" "}
-                    <button
-                        type="button"
-                        className="text-[#FFD700] hover:text-[#FFD700]/80 transition-colors underline underline-offset-4"
-                    >
-                        Sign Up
-                    </button>
-                </p>
-            </div>
         </form>
     );
 }

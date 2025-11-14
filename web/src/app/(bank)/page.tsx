@@ -15,7 +15,7 @@ export default function BankApp() {
     const [currentBalance] = useState(12847.58);
 
     return (
-        <div id="home" className="flex flex-col gap-8">
+        <div id="home" className="flex flex-col gap-6">
             {/* Balance Card */}
             <div>
                 <BalanceCard balance={currentBalance} />
@@ -24,7 +24,7 @@ export default function BankApp() {
             {/* Quick Actions */}
             <div>
                 <h2 className="text-xl text-white mb-4">Quick Actions</h2>
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                     <QuickActionCard
                         icon={Send}
                         title="Transfer Money"
@@ -75,10 +75,6 @@ export default function BankApp() {
                             </div>
                         </div>
                     </div>
-                    <button className="w-full bg-card rounded-sm p-4 border border-[#FFD700]/20 hover:border-[#FFD700]/40 transition-all flex items-center justify-center gap-2 text-white">
-                        <Download size={20} className="text-[#FFD700]" />
-                        Download Statement
-                    </button>
                 </div>
             </div>
         </div>

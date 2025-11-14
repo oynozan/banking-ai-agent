@@ -4,6 +4,7 @@ import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 
 import { useUser } from "@/lib/states";
+import { Toaster } from "@/components/ui/sonner";
 
 export default function Wrapper({ children }: { children: React.ReactNode }) {
     const router = useRouter();
@@ -55,6 +56,7 @@ export default function Wrapper({ children }: { children: React.ReactNode }) {
 
     return (
         <>
+            <Toaster richColors position="top-right" />
             {children}
         </>
     );
