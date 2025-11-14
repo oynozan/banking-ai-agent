@@ -2,95 +2,13 @@
 
 import { useState } from "react";
 import { BalanceCard } from "@/components/App/Balance/BalanceCard";
-import { TransactionList, Transaction } from "@/components/App/TransactionHistory/TransactionList";
+import { TransactionList } from "@/components/App/TransactionHistory/TransactionList";
 import { QuickActionCard } from "@/components/App/Overview/QuickActionCard";
 import { Send, FileText, PieChart, Download } from "lucide-react";
 
 import "./home.scss";
+import { mockTransactions } from "@/lib/const";
 
-// Mock transaction data
-const mockTransactions: Transaction[] = [
-    {
-        id: "1",
-        date: "Nov 14, 2025",
-        merchant: "Salary Deposit",
-        category: "Income",
-        amount: 5250.0,
-        type: "credit",
-    },
-    {
-        id: "2",
-        date: "Nov 13, 2025",
-        merchant: "Amazon Purchase",
-        category: "Shopping",
-        amount: 89.99,
-        type: "debit",
-    },
-    {
-        id: "3",
-        date: "Nov 12, 2025",
-        merchant: "Starbucks",
-        category: "Food & Dining",
-        amount: 12.45,
-        type: "debit",
-    },
-    {
-        id: "4",
-        date: "Nov 12, 2025",
-        merchant: "Netflix Subscription",
-        category: "Entertainment",
-        amount: 15.99,
-        type: "debit",
-    },
-    {
-        id: "5",
-        date: "Nov 11, 2025",
-        merchant: "Shell Gas Station",
-        category: "Transportation",
-        amount: 52.3,
-        type: "debit",
-    },
-    {
-        id: "6",
-        date: "Nov 10, 2025",
-        merchant: "Whole Foods",
-        category: "Groceries",
-        amount: 124.67,
-        type: "debit",
-    },
-    {
-        id: "7",
-        date: "Nov 9, 2025",
-        merchant: "Freelance Payment",
-        category: "Income",
-        amount: 850.0,
-        type: "credit",
-    },
-    {
-        id: "8",
-        date: "Nov 8, 2025",
-        merchant: "Electric Bill",
-        category: "Utilities",
-        amount: 145.22,
-        type: "debit",
-    },
-    {
-        id: "9",
-        date: "Nov 7, 2025",
-        merchant: "Gym Membership",
-        category: "Health & Fitness",
-        amount: 49.99,
-        type: "debit",
-    },
-    {
-        id: "10",
-        date: "Nov 6, 2025",
-        merchant: "Investment Return",
-        category: "Income",
-        amount: 320.5,
-        type: "credit",
-    },
-];
 
 export default function BankApp() {
     const [currentBalance] = useState(12847.58);
