@@ -1,0 +1,19 @@
+#balance {
+    .custom-scrollbar::-webkit-scrollbar {
+        width: 8px;
+    }
+
+    .custom-scrollbar::-webkit-scrollbar-track {
+        background: #002E3C;
+        border-radius: 4px;
+    }
+
+    .custom-scrollbar::-webkit-scrollbar-thumb {
+        background: #FFD700;
+        border-radius: 4px;
+    }
+
+    .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+        background: #ffd700cc;
+    }
+}
