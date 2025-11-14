@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Inter, Noto_Sans } from "next/font/google";
 
 import "@/styles/globals.css";
+import { AssistantWidget } from "@/components/App/AssistantWidget/AssistantWidget";
 
 const inter = Inter({
     subsets: ["latin"],
@@ -27,7 +28,9 @@ export default function RootLayout({
 }>) {
     return (
         <html lang="en">
-            <body className={`${inter.variable} ${notoSans.variable} antialiased`}>{children}</body>
+            <body className={`${inter.variable} ${notoSans.variable} antialiased`}>{children}
+                <AssistantWidget />
+            </body>
         </html>
     );
 }
