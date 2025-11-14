@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useUser } from "@/lib/states";
 import { Eye, EyeOff } from "lucide-react";
 
 interface BalanceCardProps {
@@ -8,14 +9,19 @@ interface BalanceCardProps {
 }
 
 export function BalanceCard({ balance }: BalanceCardProps) {
+    const { user } = useUser();
     const [showBalance, setShowBalance] = useState(true);
+
+    // if (!user) {
+    //     return null;
+    // }
 
     return (
         <>
             <div className="h-20 flex items-center gap-6 mb-8">
                 <div>
-                    <h1 className="text-3xl text-white mb-1">Account Overview</h1>
-                    <p className="text-gray-400">Welcome back! Here&#39;s your financial summary</p>
+                    <h1 className="text-3xl text-white mb-1">Welcome {user.name}</h1>
+                    <p className="text-gray-400">Here&#39;s your financial summary</p>
                 </div>
             </div>
             <div className="bg-card rounded-sm p-8 border border-[#FFD700]/20 shadow-xl">
