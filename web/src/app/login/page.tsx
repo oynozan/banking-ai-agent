@@ -9,17 +9,10 @@ export default function LoginPage() {
             <div className="relative w-full max-w-md">
                 <div className="bg-card/80 backdrop-blur-sm border border-white/10 rounded-2xl shadow-2xl p-8 md:p-10">
                     <div className="mb-8">
-                        <Image src='/commerz_logo.png' alt='logo' width={500} height={40}  />
+                        <Image src='/logo.svg' alt='logo' width={500} height={40}  />
                     </div>
 
                     <LoginForm />
-
-                    <div className="mt-8 pt-6 border-t border-white/10">
-                        <div className="flex items-center justify-center gap-2 text-white/50 text-xs">
-                            <Shield className="size-4" />
-                            <span>Your connection is secured with 256-bit encryption</span>
-                        </div>
-                    </div>
                 </div>
 
                 <div className="mt-6 text-center space-x-4 text-sm">
