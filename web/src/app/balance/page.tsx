@@ -1,92 +1,92 @@
-"use client"
+"use client";
 
-import { useState } from 'react';
-import { BalanceCard } from '@/components/BalanceCard';
-import { TransactionList, Transaction } from '@/components/TransactionList';
-import { QuickActionCard } from '@/components/QuickActionCard';
-import { Send, FileText, PieChart, Settings, Download, Bell } from 'lucide-react';
+import { useState } from "react";
+import { BalanceCard } from "@/components/BalanceCard";
+import { TransactionList, Transaction } from "@/components/TransactionList";
+import { QuickActionCard } from "@/components/QuickActionCard";
+import { Send, FileText, PieChart, Settings, Download, Bell } from "lucide-react";
 
 // Mock transaction data
 const mockTransactions: Transaction[] = [
     {
-        id: '1',
-        date: 'Nov 14, 2025',
-        merchant: 'Salary Deposit',
-        category: 'Income',
-        amount: 5250.00,
-        type: 'credit',
+        id: "1",
+        date: "Nov 14, 2025",
+        merchant: "Salary Deposit",
+        category: "Income",
+        amount: 5250.0,
+        type: "credit",
     },
     {
-        id: '2',
-        date: 'Nov 13, 2025',
-        merchant: 'Amazon Purchase',
-        category: 'Shopping',
+        id: "2",
+        date: "Nov 13, 2025",
+        merchant: "Amazon Purchase",
+        category: "Shopping",
         amount: 89.99,
-        type: 'debit',
+        type: "debit",
     },
     {
-        id: '3',
-        date: 'Nov 12, 2025',
-        merchant: 'Starbucks',
-        category: 'Food & Dining',
+        id: "3",
+        date: "Nov 12, 2025",
+        merchant: "Starbucks",
+        category: "Food & Dining",
         amount: 12.45,
-        type: 'debit',
+        type: "debit",
     },
     {
-        id: '4',
-        date: 'Nov 12, 2025',
-        merchant: 'Netflix Subscription',
-        category: 'Entertainment',
+        id: "4",
+        date: "Nov 12, 2025",
+        merchant: "Netflix Subscription",
+        category: "Entertainment",
         amount: 15.99,
-        type: 'debit',
+        type: "debit",
     },
     {
-        id: '5',
-        date: 'Nov 11, 2025',
-        merchant: 'Shell Gas Station',
-        category: 'Transportation',
-        amount: 52.30,
-        type: 'debit',
+        id: "5",
+        date: "Nov 11, 2025",
+        merchant: "Shell Gas Station",
+        category: "Transportation",
+        amount: 52.3,
+        type: "debit",
     },
     {
-        id: '6',
-        date: 'Nov 10, 2025',
-        merchant: 'Whole Foods',
-        category: 'Groceries',
+        id: "6",
+        date: "Nov 10, 2025",
+        merchant: "Whole Foods",
+        category: "Groceries",
         amount: 124.67,
-        type: 'debit',
+        type: "debit",
     },
     {
-        id: '7',
-        date: 'Nov 9, 2025',
-        merchant: 'Freelance Payment',
-        category: 'Income',
-        amount: 850.00,
-        type: 'credit',
+        id: "7",
+        date: "Nov 9, 2025",
+        merchant: "Freelance Payment",
+        category: "Income",
+        amount: 850.0,
+        type: "credit",
     },
     {
-        id: '8',
-        date: 'Nov 8, 2025',
-        merchant: 'Electric Bill',
-        category: 'Utilities',
+        id: "8",
+        date: "Nov 8, 2025",
+        merchant: "Electric Bill",
+        category: "Utilities",
         amount: 145.22,
-        type: 'debit',
+        type: "debit",
     },
     {
-        id: '9',
-        date: 'Nov 7, 2025',
-        merchant: 'Gym Membership',
-        category: 'Health & Fitness',
+        id: "9",
+        date: "Nov 7, 2025",
+        merchant: "Gym Membership",
+        category: "Health & Fitness",
         amount: 49.99,
-        type: 'debit',
+        type: "debit",
     },
     {
-        id: '10',
-        date: 'Nov 6, 2025',
-        merchant: 'Investment Return',
-        category: 'Income',
-        amount: 320.50,
-        type: 'credit',
+        id: "10",
+        date: "Nov 6, 2025",
+        merchant: "Investment Return",
+        category: "Income",
+        amount: 320.5,
+        type: "credit",
     },
 ];
 
@@ -117,7 +117,9 @@ export default function App() {
                 <header className="flex items-center justify-between mb-8">
                     <div>
                         <h1 className="text-3xl text-white mb-1">Account Overview</h1>
-                        <p className="text-gray-400">Welcome back! Here&#39;s your financial summary</p>
+                        <p className="text-gray-400">
+                            Welcome back! Here&#39;s your financial summary
+                        </p>
                     </div>
                     <div className="flex items-center gap-4">
                         <button className="p-2 text-gray-400 hover:text-[#FFD700] transition-colors rounded-lg hover:bg-[#003d4f]">
@@ -142,19 +144,19 @@ export default function App() {
                             icon={Send}
                             title="Transfer Money"
                             description="Send money to other accounts instantly"
-                            onClick={() => console.log('Transfer clicked')}
+                            onClick={() => console.log("Transfer clicked")}
                         />
                         <QuickActionCard
                             icon={FileText}
                             title="Pay Bills"
                             description="Manage and pay your upcoming bills"
-                            onClick={() => console.log('Pay bills clicked')}
+                            onClick={() => console.log("Pay bills clicked")}
                         />
                         <QuickActionCard
                             icon={PieChart}
                             title="Budgeting Tools"
                             description="Track spending and set financial goals"
-                            onClick={() => console.log('Budgeting clicked')}
+                            onClick={() => console.log("Budgeting clicked")}
                         />
                     </div>
                 </div>
@@ -171,11 +173,15 @@ export default function App() {
                             <h3 className="text-white mb-4">Quick Stats</h3>
                             <div className="space-y-4">
                                 <div>
-                                    <p className="text-gray-400 text-sm mb-1">This Month&#39;s Income</p>
+                                    <p className="text-gray-400 text-sm mb-1">
+                                        This Month&#39;s Income
+                                    </p>
                                     <p className="text-[#FFD700] text-2xl">+$6,420.50</p>
                                 </div>
                                 <div>
-                                    <p className="text-gray-400 text-sm mb-1">This Month&#39;s Expenses</p>
+                                    <p className="text-gray-400 text-sm mb-1">
+                                        This Month&#39;s Expenses
+                                    </p>
                                     <p className="text-white text-2xl">-$490.61</p>
                                 </div>
                                 <div className="pt-4 border-t border-gray-700">

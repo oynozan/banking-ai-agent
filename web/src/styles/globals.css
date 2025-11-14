@@ -79,8 +79,8 @@
 }
 
 .dark {
-    --background: #002E3C;
-    --foreground: #FFD700;
+    --background: #002e3c;
+    --foreground: #ffd700;
     --card: oklch(0.205 0 0);
     --card-foreground: oklch(0.985 0 0);
     --popover: oklch(0.205 0 0);
@@ -114,16 +114,21 @@
 
 @layer base {
     * {
-      @apply border-border outline-ring/50;
+        @apply border-border outline-ring/50;
     }
     body {
-      @apply bg-background text-foreground font-noto;
+        @apply bg-background text-foreground font-noto;
     }
 }
 
-h1, h2, h3, h4, h5, h6 {
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
     font-weight: 600;
-    font-family: "Inter", sans-serif
+    font-family: "Inter", sans-serif;
 }
 
 button {
@@ -134,6 +139,8 @@ button:disabled {
     cursor: default;
 }
 
-button, input, a {
+button,
+input,
+a {
     font-family: "Noto Sans", sans-serif;
 }
