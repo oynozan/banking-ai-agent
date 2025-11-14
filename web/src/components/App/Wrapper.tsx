@@ -3,11 +3,11 @@
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 
-import { userState } from "@/lib/states";
+import { useUser } from "@/lib/states";
 
 export default function Wrapper({ children }: { children: React.ReactNode }) {
     const router = useRouter();
-    const { user, state, setState, setUser } = userState();
+    const { user, state, setState, setUser } = useUser();
 
     useEffect(() => {
         if (!user && state === "not_logged_in" && typeof window !== "undefined") {
@@ -53,5 +53,9 @@ export default function Wrapper({ children }: { children: React.ReactNode }) {
         }
     }, [user]);
 
-    return <>{children}</>;
+    return (
+        <>
+            {children}
+        </>
+    );
 }

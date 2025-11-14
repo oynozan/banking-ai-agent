@@ -1,13 +1,14 @@
 "use client";
 
 import { useState } from "react";
-import { BalanceCard } from "@/components/App/Balance/BalanceCard";
-import { TransactionList } from "@/components/App/TransactionHistory/TransactionList";
-import { QuickActionCard } from "@/components/App/Overview/QuickActionCard";
 import { Send, FileText, PieChart, Download } from "lucide-react";
 
-import "./home.scss";
 import { mockTransactions } from "@/lib/const";
+import { BalanceCard } from "@/components/App/Balance/BalanceCard";
+import { QuickActionCard } from "@/components/App/Overview/QuickActionCard";
+import { TransactionList } from "@/components/App/TransactionHistory/TransactionList";
+
+import "./home.scss";
 
 
 export default function BankApp() {

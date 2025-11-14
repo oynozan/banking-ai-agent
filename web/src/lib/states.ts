@@ -1,11 +1,7 @@
 import { create } from "zustand";
+import type { IUser } from "./types";
 
 // Auth store
-interface IUser {
-    id: string;
-    name: string;
-}
-
 type UserState = "logged_in" | "loading" | "not_logged_in";
 
 interface IUserState {
@@ -16,9 +12,12 @@ interface IUserState {
     clearUser: () => void;
 }
 
-export const userState = create<IUserState>(set => ({
+export const useUser = create<IUserState>(set => ({
     state: "not_logged_in",
-    user: null,
+    user: {
+        name: "Anna",
+        id: "user-id",
+    },
     setUser: (user: IUser) => set({ user }),
     setState: (state: UserState) => set({ state }),
     clearUser: () => set({ user: null }),
