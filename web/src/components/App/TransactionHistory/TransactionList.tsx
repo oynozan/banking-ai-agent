@@ -15,13 +15,13 @@ interface TransactionListProps {
 
 export function TransactionList({ transactions }: TransactionListProps) {
     return (
-        <div className="bg-[#003d4f] rounded-2xl p-6 border border-[#FFD700]/20">
+        <div className="bg-card rounded-sm p-6 border border-[#FFD700]/20">
             <h2 className="text-xl text-white mb-6">Recent Transactions</h2>
             <div className="space-y-1 max-h-[400px] overflow-y-auto custom-scrollbar">
                 {transactions.map(transaction => (
                     <div
                         key={transaction.id}
-                        className="flex items-center justify-between p-4 hover:bg-[#002E3C] rounded-lg transition-colors group"
+                        className="flex items-center justify-between mr-4 p-4 hover:bg-white/5 rounded-lg transition-colors group"
                     >
                         <div className="flex items-center gap-4">
                             <div
