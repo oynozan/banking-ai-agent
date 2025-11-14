@@ -1,11 +1,17 @@
 import type { Metadata } from "next";
-import { Inter } from "next/font/google";
+import { Inter, Noto_Sans } from "next/font/google";
 
 import "@/styles/globals.css";
 
 const inter = Inter({
     subsets: ["latin"],
     variable: "--font-inter",
+    display: "swap",
+});
+
+const notoSans = Noto_Sans({
+    subsets: ["latin"],
+    variable: "--font-noto",
     display: "swap",
 });
 
@@ -21,7 +27,7 @@ export default function RootLayout({
 }>) {
     return (
         <html lang="en">
-            <body className={`${inter.variable} antialiased`}>{children}</body>
+            <body className={`${inter.variable} ${notoSans.variable} antialiased`}>{children}</body>
         </html>
     );
 }
