@@ -1,7 +1,7 @@
 "use client";
 
 import React from 'react';
-import { useAssistantStore } from '@/store/assistant-store';
+import { useAssistantStore } from '@/store/assistant-store'; // Adjust path as needed
 import { MessageSquarePlus, X, SendHorizonal } from 'lucide-react';
 import clsx from 'clsx';
 
@@ -11,47 +11,72 @@ export function AssistantWidget() {
     return (
         <div className="fixed bottom-4 right-4 z-50">
 
-
+            {/* CHAT WINDOW */}
             <div
                 className={clsx(
-                    'transition-all duration-300 ease-in-out',
-                    'flex flex-col bg-white shadow-xl rounded-lg',
-                    'w-80 h-96 overflow-hidden',
+                    'flex flex-col bg-zinc-200 shadow-xl rounded-lg',
+                    'w-96 h-[800px] overflow-hidden text-white', // Fixed dimensions
                     isOpen
-                        ? 'opacity-100 translate-y-0'
-                        : 'opacity-0 translate-y-4 pointer-events-none'
+                        ? 'block' // Instantly shows
+                        : 'hidden'  // Instantly hides
                 )}
             >
-                <div className="flex justify-between items-center p-4 bg-gray-100 border-b">
-                    <h3 className="font-semibold text-lg">AI Assistant</h3>
+                {/* Header */}
+                <div className="flex justify-between items-center p-4 bg-[#002e3c] border-b border-b-[#13181a]">
+                    <h3 className="font-semibold text-lg text-[#ffd700]">AI Assistant</h3>
                     <button
                         onClick={toggle}
-                        className="p-1 rounded-full hover:bg-gray-200"
+                        className="p-1 rounded-full text-gray-300 hover:bg-[#1c292d]"
                         aria-label="Close assistant chat"
                     >
                         <X className="w-5 h-5" />
                     </button>
                 </div>
 
+                {/* --- SCROLLABLE CHAT BODY --- */}
+                {/* This div is the key part for your future chat logic.
+                    'flex-1' makes it fill the space.
+                    'overflow-y-auto' makes it scrollable.
+                */}
                 <div className="flex-1 p-4 overflow-y-auto space-y-4">
+                    {/* AI Message */}
                     <div className="flex justify-start">
-                        <div className="bg-gray-200 text-gray-800 p-3 rounded-lg max-w-xs">
+                        <div className="bg-[#13181a] text-gray-200 p-3 rounded-lg max-w-xs">
                             <p>Hello! How can I help you today?</p>
                         </div>
                     </div>
+                    {/* User Message */}
                     <div className="flex justify-end">
-                        <div className="bg-blue-600 text-white p-3 rounded-lg max-w-xs">
+                        <div className="bg-[#002e3c] text-white p-3 rounded-lg max-w-xs">
                             <p>I have a question about my account.</p>
                         </div>
                     </div>
+                    {/* AI Message */}
                     <div className="flex justify-start">
-                        <div className="bg-gray-200 text-gray-800 p-3 rounded-lg max-w-xs">
+                        <div className="bg-[#13181a] text-gray-200 p-3 rounded-lg max-w-xs">
                             <p>Sure, I can help with that. What&#39;s your question?</p>
+                        </div>
+                    </div>
+                    {/* Add more messages here to test scrolling */}
+                    <div className="flex justify-start">
+                        <div className="bg-[#13181a] text-gray-200 p-3 rounded-lg max-w-xs">
+                            <p>Just add a few more of these...</p>
+                        </div>
+                    </div>
+                    <div className="flex justify-end">
+                        <div className="bg-[#002e3c] text-white p-3 rounded-lg max-w-xs">
+                            <p>...and you will see...</p>
+                        </div>
+                    </div>
+                    <div className="flex justify-start">
+                        <div className="bg-[#13181a] text-gray-200 p-3 rounded-lg max-w-xs">
+                            <p>...that the scrollbar appears!</p>
                         </div>
                     </div>
                 </div>
 
-                <div className="p-4 border-t bg-gray-50">
+                {/* Chat Input (Mock) */}
+                <div className="p-4 border-t border-t-[#13181a] bg-[#13181a]">
                     <form
                         onSubmit={(e) => e.preventDefault()}
                         className="flex items-center gap-2"
@@ -59,11 +84,11 @@ export function AssistantWidget() {
                         <input
                             type="text"
                             placeholder="Type your message..."
-                            className="flex-1 px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                            className="flex-1 px-3 py-2 bg-[#1c292d] border border-[#002e3c] rounded-lg text-white placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-[#ffd700] focus:border-transparent"
                         />
                         <button
                             type="submit"
-                            className="p-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+                            className="p-2 bg-[#ffd700] text-[#13181a] rounded-lg hover:bg-[#ffd700]/90"
                             aria-label="Send message"
                         >
                             <SendHorizonal className="w-5 h-5" />
@@ -72,12 +97,12 @@ export function AssistantWidget() {
                 </div>
             </div>
 
+            {/* TRIGGER BUTTON */}
             <button
                 onClick={toggle}
                 className={clsx(
-                    'transition-all duration-300 ease-in-out',
-                    'p-4 bg-blue-600 text-white rounded-full shadow-lg hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2',
-                    isOpen ? 'opacity-0 -translate-y-4' : 'opacity-100 translate-y-0'
+                    'p-4 bg-[#ffd700] text-[#13181a] rounded-full shadow-lg hover:bg-[#ffd700]/90 focus:outline-none focus:ring-2 focus:ring-[#ffd700] focus:ring-offset-2 focus:ring-offset-gray-800',
+                    isOpen ? 'hidden' : 'block' // Toggles visibility
                 )}
                 aria-label="Open assistant chat"
             >
