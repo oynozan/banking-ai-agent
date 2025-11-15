@@ -10,9 +10,10 @@ import { TransactionList } from "@/components/App/TransactionHistory/Transaction
 
 import "./home.scss";
 import { useTransactions } from "@/hooks/useTransactions";
+import QuickStats from "@/components/App/QuickStats/QuickStats";
 
 export default function BankApp() {
-    const { transactions, isLoading } = useTransactions();
+    const { transactions, stats, isLoading } = useTransactions();
     const router = useRouter();
     const { user } = useUser();
     const { showBalance } = usePreferencesStore();
@@ -60,35 +61,7 @@ export default function BankApp() {
                     </div>
                 )}
 
-                <div className="flex flex-col space-y-4">
-                    <div className="flex-1 bg-card rounded-sm p-6 border border-gold/30 hover:border-gold/45 transition-all shadow-xl">
-                        <h3 className="text-white mb-4">Quick Stats</h3>
-                        <div className="space-y-4">
-                            <div>
-                                <p className="text-gray-400 text-sm mb-1">
-                                    This Month&#39;s Income
-                                </p>
-                                <p className="text-[#FFD700] text-2xl">
-                                    {showBalance ? "+$6,420.50" : "••••••"}
-                                </p>
-                            </div>
-                            <div>
-                                <p className="text-gray-400 text-sm mb-1">
-                                    This Month&#39;s Expenses
-                                </p>
-                                <p className="text-white text-2xl">
-                                    {showBalance ? "-$490.61" : "••••••"}
-                                </p>
-                            </div>
-                            <div className="pt-4 border-t border-gray-700">
-                                <p className="text-gray-400 text-sm mb-1">Net Change</p>
-                                <p className="text-[#FFD700] text-2xl">
-                                    {showBalance ? "+$5,929.89" : "••••••"}
-                                </p>
-                            </div>
-                        </div>
-                    </div>
-                </div>
+                <QuickStats showBalance={showBalance} stats={stats} />
             </div>
         </div>
     );
