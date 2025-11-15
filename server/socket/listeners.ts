@@ -2,7 +2,10 @@ import cookie from "cookie";
 import jwt from "jsonwebtoken";
 import type { Socket, Server, Namespace } from "socket.io";
 
+import type { IUser } from "../models/Users";
+
 // Listener imports
+import { AgentListener } from "./ai";
 import { SocketPing } from "./socket-ping";
 
 export class SocketListeners {
@@ -17,7 +20,7 @@ export class SocketListeners {
 
     protectedListeners() {
         const protectedIO = this.io.of("/protected");
-        this.authenticationMiddleware(protectedIO);
+        this.serverOnlyAuthenticationMiddleware(protectedIO);
 
         // Listeners
         protectedIO.on("connection", (socket: Socket) => {
@@ -27,11 +30,40 @@ export class SocketListeners {
 
     publicListeners() {
         this.io.on("connection", (socket: Socket) => {
+            const publicIO = this.io.of("/");
+            this.authenticationMiddleware(publicIO);
+
+            // Listeners
             new SocketPing(this.io, socket).listen();
+            publicIO.on("connection", (socket: Socket) => {
+                new AgentListener(publicIO, socket).listen();
+            });
         });
     }
 
     private authenticationMiddleware(io: Namespace) {
+        io.use((socket, next) => {
+            try {
+                const authHeader = socket.handshake.headers.authorization;
+                if (!authHeader || !authHeader.startsWith("Bearer ")) return next();
+
+                const token = authHeader.split(" ")[1];
+                if (!token) next();
+
+                jwt.verify(token, process.env.JWT_SECRET!, (err, decoded) => {
+                    if (err) return next(new Error("Forbidden"));
+                    socket.user = decoded as IUser;
+                    next();
+                });
+            } catch (e) {
+                console.error(e);
+                next(new Error("Forbidden"));
+            }
+        });
+        return io;
+    }
+
+    private serverOnlyAuthenticationMiddleware(io: Namespace) {
         io.use((socket, next) => {
             let token: string | undefined;
 

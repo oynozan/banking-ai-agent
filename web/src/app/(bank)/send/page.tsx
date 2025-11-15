@@ -2,7 +2,9 @@
 
 import clsx from "clsx";
 import { useState } from "react";
-import { ArrowRight } from "lucide-react";
+import { ArrowRight, Loader2 } from "lucide-react";
+import { useMutation, useQuery } from "@tanstack/react-query";
+import { toast } from "sonner";
 
 import {
     Select,
@@ -13,9 +15,9 @@ import {
     SelectTrigger,
     SelectValue,
 } from "@/components/ui/select";
-import { Separator } from "@/components/ui/separator";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+import { Separator } from "@/components/ui/separator";
 
 export default function Send() {
     const [activeTab, setActiveTab] = useState<"internal" | "external">("internal");
@@ -68,6 +70,131 @@ export default function Send() {
 }
 
 function InternalTransfer() {
+    type Account = {
+        iban: string;
+        balance?: number;
+        currency?: string;
+        type?: string;
+    };
+
+    const [fromAccountId, setFromAccountId] = useState<string | undefined>(undefined);
+    const [toAccountId, setToAccountId] = useState<string | undefined>(undefined);
+    const [amount, setAmount] = useState<string>("");
+
+    const {
+        data,
+        refetch,
+        isFetching,
+    } = useQuery({
+        queryKey: ["accounts"],
+        enabled: false, // fetch only when a select is opened
+        queryFn: async () => {
+            const accessToken =
+                typeof window !== "undefined" ? localStorage.getItem("accessToken") : null;
+            const headers: HeadersInit = accessToken
+                ? { Authorization: `Bearer ${accessToken}` }
+                : {};
+
+            const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/accounts`, { headers });
+            if (!res.ok) {
+                throw new Error("Failed to fetch accounts");
+            }
+            return res.json() as Promise<{ accounts?: Account[] }>;
+        },
+    });
+
+    const accounts: Account[] = Array.isArray(data?.accounts) ? data!.accounts! : [];
+
+    const selectedFrom = accounts.find((a) => a.iban === fromAccountId);
+    const selectedTo = accounts.find((a) => a.iban === toAccountId);
+
+    const fromOptions = accounts.filter((acc) => {
+        if (acc.iban === toAccountId) return false;
+        if (selectedTo?.currency && acc.currency && acc.currency !== selectedTo.currency) {
+            return false;
+        }
+        return true;
+    });
+
+    const toOptions = accounts.filter((acc) => {
+        if (acc.iban === fromAccountId) return false;
+        if (selectedFrom?.currency && acc.currency && acc.currency !== selectedFrom.currency) {
+            return false;
+        }
+        return true;
+    });
+
+    const { mutateAsync: transferInternal, isPending } = useMutation({
+        mutationKey: ["transfer-internal"],
+        mutationFn: async (payload: { fromAccountId: string; toAccountId: string; amount: number }) => {
+            const accessToken =
+                typeof window !== "undefined" ? localStorage.getItem("accessToken") : null;
+            const headers: HeadersInit = {
+                "Content-Type": "application/json",
+                ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
+            };
+
+            const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/transfer/internal`, {
+                method: "POST",
+                headers,
+                body: JSON.stringify(payload),
+            });
+            const json = await res.json().catch(() => ({}));
+            if (!res.ok) {
+                throw new Error(json?.error || "Transfer failed");
+            }
+            return json as {
+                success: boolean;
+                from: { id: string; balance: number; currency: string };
+                to: { id: string; balance: number; currency: string };
+            };
+        },
+        onSuccess: async () => {
+            toast.success("Transfer completed successfully.");
+            setAmount("");
+            setFromAccountId(undefined);
+            setToAccountId(undefined);
+            await refetch();
+        },
+        onError: (error) => {
+            const message =
+                error instanceof Error ? error.message : "An unexpected error occurred";
+            toast.error(message);
+        },
+    });
+
+    const parsedAmount = Number.parseFloat(amount);
+    const insufficientFunds =
+        typeof selectedFrom?.balance === "number" && Number.isFinite(parsedAmount)
+            ? parsedAmount > selectedFrom.balance
+            : false;
+
+    const sameCurrencySelected =
+        !!selectedFrom && !!selectedTo ? selectedFrom.currency === selectedTo.currency : true;
+
+    const canSubmit =
+        !!fromAccountId &&
+        !!toAccountId &&
+        fromAccountId !== toAccountId &&
+        Number.isFinite(parsedAmount) &&
+        parsedAmount > 0 &&
+        !!selectedFrom &&
+        !!selectedTo &&
+        sameCurrencySelected &&
+        !insufficientFunds;
+
+    const handleTransfer = async () => {
+        if (!canSubmit || !fromAccountId || !toAccountId) return;
+
+        try {
+            await transferInternal({
+                fromAccountId,
+                toAccountId,
+                amount: parsedAmount,
+            });
+        } catch {}
+    };
+
     return (
         <div>
             <h2>Send money between your accounts</h2>
@@ -78,18 +205,48 @@ function InternalTransfer() {
                         <p className="text-gray-400 mb-2">
                             Choose the account you want to send from
                         </p>
-                        <Select>
+                        <Select
+                            value={fromAccountId}
+                            onValueChange={(value) => {
+                                setFromAccountId(value);
+                                if (toAccountId) {
+                                    const newFrom = accounts.find((a) => a.iban === value);
+                                    const currentTo = accounts.find((a) => a.iban === toAccountId);
+                                    if (
+                                        !currentTo ||
+                                        currentTo.iban === value ||
+                                        (newFrom?.currency &&
+                                            currentTo.currency &&
+                                            newFrom.currency !== currentTo.currency)
+                                    ) {
+                                        setToAccountId(undefined);
+                                    }
+                                }
+                            }}
+                            onOpenChange={(open) => {
+                                if (open) {
+                                    void refetch();
+                                }
+                            }}
+                        >
                             <SelectTrigger className="w-full">
-                                <SelectValue placeholder="Select a fruit" />
+                                <SelectValue placeholder="Select an account" />
                             </SelectTrigger>
                             <SelectContent>
                                 <SelectGroup>
-                                    <SelectLabel>Fruits</SelectLabel>
-                                    <SelectItem value="apple">Apple</SelectItem>
-                                    <SelectItem value="banana">Banana</SelectItem>
-                                    <SelectItem value="blueberry">Blueberry</SelectItem>
-                                    <SelectItem value="grapes">Grapes</SelectItem>
-                                    <SelectItem value="pineapple">Pineapple</SelectItem>
+                                    <SelectLabel>Accounts</SelectLabel>
+                                    {isFetching && <Loader2 className="w-4 h-4 animate-spin" />}
+                                    {!isFetching &&
+                                        fromOptions.map((acc) => (
+                                            <SelectItem key={acc.iban} value={acc.iban}>
+                                                {acc.iban || `Account (${acc.type ?? "unknown"})`}
+                                                <span className="text-gray-400">
+                                                    {typeof acc.balance === "number"
+                                                        ? ` - ${acc.balance} ${acc.currency ?? ""}`
+                                                        : ""}
+                                                </span>
+                                            </SelectItem>
+                                        ))}
                                 </SelectGroup>
                             </SelectContent>
                         </Select>
@@ -100,18 +257,48 @@ function InternalTransfer() {
                     <section className="flex-1">
                         <h3 className="text-white">To</h3>
                         <p className="text-gray-400 mb-2">Choose the account you want to send to</p>
-                        <Select>
+                        <Select
+                            value={toAccountId}
+                            onValueChange={(value) => {
+                                setToAccountId(value);
+                                if (fromAccountId) {
+                                    const newTo = accounts.find((a) => a.iban === value);
+                                    const currentFrom = accounts.find((a) => a.iban === fromAccountId);
+                                    if (
+                                        !currentFrom ||
+                                        currentFrom.iban === value ||
+                                        (newTo?.currency &&
+                                            currentFrom.currency &&
+                                            newTo.currency !== currentFrom.currency)
+                                    ) {
+                                        setFromAccountId(undefined);
+                                    }
+                                }
+                            }}
+                            onOpenChange={(open) => {
+                                if (open) {
+                                    void refetch();
+                                }
+                            }}
+                        >
                             <SelectTrigger className="w-full">
-                                <SelectValue placeholder="Select a fruit" />
+                                <SelectValue placeholder="Select an account" />
                             </SelectTrigger>
                             <SelectContent>
                                 <SelectGroup>
-                                    <SelectLabel>Fruits</SelectLabel>
-                                    <SelectItem value="apple">Apple</SelectItem>
-                                    <SelectItem value="banana">Banana</SelectItem>
-                                    <SelectItem value="blueberry">Blueberry</SelectItem>
-                                    <SelectItem value="grapes">Grapes</SelectItem>
-                                    <SelectItem value="pineapple">Pineapple</SelectItem>
+                                    <SelectLabel>Accounts</SelectLabel>
+                                    {isFetching && <Loader2 className="w-4 h-4 animate-spin" />}
+                                    {!isFetching &&
+                                        toOptions.map((acc) => (
+                                            <SelectItem key={acc.iban} value={acc.iban}>
+                                                {acc.iban || `Account (${acc.type ?? "unknown"})`}
+                                                <span className="text-gray-400">
+                                                    {typeof acc.balance === "number"
+                                                        ? ` - ${acc.balance} ${acc.currency ?? ""}`
+                                                        : ""}
+                                                </span>
+                                            </SelectItem>
+                                        ))}
                                 </SelectGroup>
                             </SelectContent>
                         </Select>
@@ -125,16 +312,36 @@ function InternalTransfer() {
                     <div className="flex items-center justify-between mb-2">
                         <p className="text-gray-400">Enter the amount you want to send</p>
                         <p className="text-gray-400">
-                            Available balance: <span className="text-gold">1000</span>
+                            Available balance:{" "}
+                            <span className="text-gold">
+                                {selectedFrom?.balance ?? 0} {selectedFrom?.currency ?? ""}
+                            </span>
                         </p>
                     </div>
-                    <Input type="number" placeholder="Enter the amount" className="w-full" />
+                    <Input
+                        type="number"
+                        min="0"
+                        step="any"
+                        placeholder="Enter the amount"
+                        className="w-full"
+                        value={amount}
+                        onChange={(e) => setAmount(e.target.value)}
+                    />
+                    {insufficientFunds && (
+                        <p className="text-sm text-red-400 mt-2">Insufficient balance.</p>
+                    )}
                 </section>
 
                 <Separator />
 
                 <section className="w-full flex items-end justify-end gap-2">
-                    <Button>Send Money</Button>
+                    <Button
+                        disabled={!canSubmit || isPending}
+                        onClick={handleTransfer}
+                    >
+                        {isPending && <Loader2 className="w-4 h-4 animate-spin" />}
+                        Send Money
+                    </Button>
                 </section>
             </div>
         </div>

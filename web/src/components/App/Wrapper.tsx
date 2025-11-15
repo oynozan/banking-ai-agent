@@ -2,9 +2,12 @@
 
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 import { useUser } from "@/lib/states";
 import { Toaster } from "@/components/ui/sonner";
+
+const queryClient = new QueryClient()
 
 export default function Wrapper({ children }: { children: React.ReactNode }) {
     const router = useRouter();
@@ -53,9 +56,9 @@ export default function Wrapper({ children }: { children: React.ReactNode }) {
     }, [user]);
 
     return (
-        <>
+        <QueryClientProvider client={queryClient}>
             <Toaster richColors position="top-right" />
             {children}
-        </>
+        </QueryClientProvider>
     );
 }
