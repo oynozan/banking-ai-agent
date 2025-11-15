@@ -5,4 +5,4 @@
 node_modules/
 
 # Ignore text-to-speech output files
-ai/tts-output.mp3
+tts-output.mp3
