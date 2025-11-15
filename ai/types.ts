@@ -32,8 +32,8 @@ export interface TransferMoneyResponse extends ActionResponse {
   currency?: string | null;
   recipient?: string | null;            // Name or alias the user typed
   recipient_iban?: string | null;       // Direct IBAN (if provided)
-  date?: string | null;                 // For scheduled transfers
   note?: string | null;                 // Optional user note
+  // ❌ Removed date (because scheduled transfers are not supported)
 }
 
 // ============================================================
@@ -79,4 +79,3 @@ export type AssistantResponse =
   | AddContactResponse
   | CardActionResponse
   | SavingsGoalResponse;
-

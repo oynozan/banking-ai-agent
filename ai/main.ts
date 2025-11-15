@@ -141,10 +141,7 @@ async function main(): Promise<void> {
       // Handle specific intents
       let followUpResult: AssistantResponse | null = null;
 
-      if (
-        result.intent === "transfer_money" ||
-        result.intent === "schedule_transfer"
-      ) {
+      if (result.intent === "transfer_money") {
         followUpResult = await handleTransferMoney(
           result as TransferMoneyResponse,
           contactManager,
