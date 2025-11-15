@@ -1,82 +1,59 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { socket } from "@/lib/socket";
+import { Button } from "@/components/ui/button";
 
-type PendingAction = {
-    id: string;
-    data: { intent?: string; assistant_message?: string | null; [k: string]: unknown };
+type Props = {
+	id: string;
+	text: string;
+	status: "pending" | "accepted" | "cancelled";
 };
 
-export default function Action() {
-    const [pending, setPending] = useState<PendingAction | null>(null);
-    const [busy, setBusy] = useState(false);
+export default function Action({ id, text, status }: Props) {
+	const [busy, setBusy] = useState(false);
 
-    useEffect(() => {
-        const handleRequest = ({ id, data }: { id: string; data: PendingAction["data"] }) => {
-            setPending({ id, data });
-            setBusy(false);
-        };
-        const handlePerformed = ({ id }: { id: string }) => {
-            if (pending?.id === id) setPending(null);
-            setBusy(false);
-        };
-        const handleCancelled = ({ id }: { id: string }) => {
-            if (pending?.id === id) setPending(null);
-            setBusy(false);
-        };
+	const confirm = () => {
+		setBusy(true);
+		socket.emit("chat:action:confirm", { id });
+	};
 
-        socket.on("chat:action:request", handleRequest);
-        socket.on("chat:action", handlePerformed);
-        socket.on("chat:action:cancelled", handleCancelled);
-        socket.on("chat:error", handleCancelled);
+	const decline = () => {
+		setBusy(true);
+		socket.emit("chat:action:decline", { id });
+	};
 
-        return () => {
-            socket.off("chat:action:request", handleRequest);
-            socket.off("chat:action", handlePerformed);
-            socket.off("chat:action:cancelled", handleCancelled);
-            socket.off("chat:error", handleCancelled);
-        };
-    }, [pending?.id]);
+	const cancelled = status === "cancelled";
+	const accepted = status === "accepted";
 
-    if (!pending) return null;
+	return (
+		<div className="flex justify-start">
+			<div className="bg-[#13181a] bg-diagonal-stripes text-white p-8 rounded-xl w-full">
+				<p className="mb-3">
+					{text}{" "}
+					{cancelled && <span className="text-xs text-gray-400">[cancelled]</span>}
+					{accepted && <span className="text-xs text-gray-400">[accepted]</span>}
+				</p>
 
-    const confirm = () => {
-        if (!pending) return;
-        setBusy(true);
-        socket.emit("chat:action:confirm", { id: pending.id });
-    };
-
-    const decline = () => {
-        if (!pending) return;
-        setBusy(true);
-        socket.emit("chat:action:decline", { id: pending.id });
-    };
-
-    const message =
-        (typeof pending.data.assistant_message === "string" && pending.data.assistant_message) ||
-        "Do you want to proceed with this action?";
-
-    return (
-        <div className="flex justify-start">
-            <div className="bg-[#13181a] border border-[#1c1c1c] text-white p-4 rounded-[12px] rounded-tl-none w-full">
-                <p className="mb-3">{message}</p>
-                <div className="flex gap-2">
-                    <button
-                        onClick={confirm}
-                        disabled={busy}
-                        className="px-3 py-1 rounded-md bg-[#f8cb00] text-black disabled:opacity-60"
-                    >
-                        Accept
-                    </button>
-                    <button
-                        onClick={decline}
-                        disabled={busy}
-                        className="px-3 py-1 rounded-md bg-transparent border border-[#2a2a2a] text-white disabled:opacity-60"
-                    >
-                        Decline
-                    </button>
-                </div>
-            </div>
-        </div>
-    );
+				{status === "pending" && (
+					<div className="w-full flex gap-2">
+						<Button
+							variant="outline"
+							onClick={decline}
+							disabled={busy}
+							className="bg-[#13181a] px-3 py-1 rounded-md border border-[#2a2a2a] text-white disabled:opacity-60 w-1/2"
+						>
+							Decline
+						</Button>
+						<Button
+							variant="gold"
+							onClick={confirm}
+							disabled={busy}
+							className="px-3 py-1 rounded-md bg-[#f8cb00] text-black disabled:opacity-60 w-1/2"
+						>
+							Accept
+						</Button>
+					</div>
+				)}
+			</div>
+		</div>
+	);
 }
-

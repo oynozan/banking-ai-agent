@@ -1,21 +1,20 @@
 "use client";
 
 import clsx from "clsx";
-import { useEffect, useRef, useState } from "react";
 import { SendHorizonal } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
 
+import Action from "./Action";
+import { socket } from "@/lib/socket";
 import WidgetTrigger from "./Trigger";
 import WidgetHeader from "./WidgetHeader";
 import { useAssistantStore } from "@/lib/states";
-import { socket } from "@/lib/socket";
-import Action from "./Action";
 
 import './chat.scss';
 
-type Message = {
-    isUser: boolean;
-    text: string;
-};
+type ChatItem =
+    | { kind: "text"; isUser: boolean; text: string }
+    | { kind: "action"; id: string; text: string; status: "pending" | "accepted" | "cancelled" };
 
 export function AssistantWidget() {
     const { isOpen, toggle, isFullScreen, toggleFullScreen } = useAssistantStore();
@@ -23,23 +22,28 @@ export function AssistantWidget() {
     const inputRef = useRef<HTMLInputElement | null>(null);
     const chatBodyRef = useRef<HTMLDivElement | null>(null);
 
-    const [messages, setMessages] = useState<Message[]>([]);
+    const [messages, setMessages] = useState<ChatItem[]>([]);
     const [isSending, setIsSending] = useState<boolean>(false);
 
     useEffect(() => {
         const handleStreamStart = () => {
             setIsSending(true);
-            setMessages(prev => [...prev, { isUser: false, text: "" }]);
+            setMessages(prev => [...prev, { kind: "text", isUser: false, text: "" }]);
         };
 
         const handleStream = ({ token }: { token: string }) => {
             setMessages(prev => {
                 const next = [...prev];
                 const lastIndex = next.length - 1;
-                if (lastIndex >= 0 && !next[lastIndex].isUser) {
-                    next[lastIndex] = { ...next[lastIndex], text: next[lastIndex].text + token };
+                if (lastIndex >= 0 && next[lastIndex].kind === "text") {
+                    const last = next[lastIndex] as { kind: "text"; isUser: boolean; text: string };
+                    if (last.isUser) {
+                        next.push({ kind: "text", isUser: false, text: token });
+                        return next;
+                    }
+                    next[lastIndex] = { ...last, text: last.text + token };
                 } else {
-                    next.push({ isUser: false, text: token });
+                    next.push({ kind: "text", isUser: false, text: token });
                 }
                 return next;
             });
@@ -51,18 +55,45 @@ export function AssistantWidget() {
 
         const handleError = ({ message }: { message: string }) => {
             setIsSending(false);
-            setMessages(prev => [...prev, { isUser: false, text: `Error: ${message}` }]);
+            setMessages(prev => [...prev, { kind: "text", isUser: false, text: `Error: ${message}` }]);
         };
 
         type ActionPayload = { intent?: string; assistant_message?: string | null; [k: string]: unknown };
-        const handleAction = ({ data }: { data: ActionPayload }) => {
-            // Show assistant_message in chat (not streamed), and log action payload
+        const handleAction = ({ data, id }: { data: ActionPayload; id?: string }) => {
             const assistantMessage =
                 (data && typeof data.assistant_message === "string" && data.assistant_message) ||
                 "Okay, I prepared that action.";
-            setMessages(prev => [...prev, { isUser: false, text: assistantMessage }]);
+            if (id) {
+                setMessages(prev =>
+                    prev.map(m =>
+                        m.kind === "action" && m.id === id
+                            ? { ...m, status: "accepted", text: assistantMessage }
+                            : m,
+                    ),
+                );
+            } else {
+                setMessages(prev => [...prev, { kind: "text", isUser: false, text: assistantMessage }]);
+            }
             console.log("chat:action", data);
             setIsSending(false);
+        };
+
+        const handleActionRequest = ({ id, data }: { id: string; data: ActionPayload }) => {
+            const assistantMessage =
+                (data && typeof data.assistant_message === "string" && data.assistant_message) ||
+                "Do you want to proceed with this action?";
+            setMessages(prev => [
+                ...prev,
+                { kind: "action", id, text: assistantMessage, status: "pending" },
+            ]);
+            setIsSending(false); // allow typing while deciding
+        };
+
+        const handleActionCancelled = ({ id }: { id: string }) => {
+            setMessages(prev =>
+                prev.map(m => (m.kind === "action" && m.id === id ? { ...m, status: "cancelled" } : m)),
+            );
+            setIsSending(false); // re-enable input
         };
 
         socket.on("chat:stream:start", handleStreamStart);
@@ -70,6 +101,8 @@ export function AssistantWidget() {
         socket.on("chat:stream:end", handleStreamEnd);
         socket.on("chat:error", handleError);
         socket.on("chat:action", handleAction);
+        socket.on("chat:action:request", handleActionRequest);
+        socket.on("chat:action:cancelled", handleActionCancelled);
 
         return () => {
             socket.off("chat:stream:start", handleStreamStart);
@@ -77,6 +110,8 @@ export function AssistantWidget() {
             socket.off("chat:stream:end", handleStreamEnd);
             socket.off("chat:error", handleError);
             socket.off("chat:action", handleAction);
+            socket.off("chat:action:request", handleActionRequest);
+            socket.off("chat:action:cancelled", handleActionCancelled);
         };
     }, []);
 
@@ -102,7 +137,7 @@ export function AssistantWidget() {
         const text = (message || "").toString().trim();
         if (!text) return;
 
-        setMessages(prev => [...prev, { isUser: true, text }]);
+        setMessages(prev => [...prev, { kind: "text", isUser: true, text }]);
         setIsSending(true);
         socket.emit("chat:message", text);
 
@@ -136,10 +171,13 @@ export function AssistantWidget() {
 
                 {/* Chat Body */}
                 <div ref={chatBodyRef} className={`chat-body flex-1 p-4 overflow-y-auto space-y-4 ${isFullScreen ? "bg-[#1c1c1c]" : "bg-zinc-50"}`}>
-                    {messages.map((m, i) => (
-                        <Message key={i} message={m.text} isUser={m.isUser} />
-                    ))}
-                    <Action />
+                    {messages.map((m, i) =>
+                        m.kind === "text" ? (
+                            <Message key={i} message={m.text} isUser={m.isUser} />
+                        ) : (
+                            <Action key={m.id} id={m.id} text={m.text} status={m.status} />
+                        ),
+                    )}
                 </div>
 
                 {/* Chat Input */}

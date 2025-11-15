@@ -84,9 +84,20 @@
     * {
         @apply border-border outline-ring/50;
     }
+
     body {
         @apply bg-background text-foreground font-noto;
         background-color: #13181a;
+    }
+
+    .bg-diagonal-stripes {
+        background: repeating-linear-gradient(
+            45deg,
+            rgba(255, 255, 255, 0.04) 0px,
+            rgba(255, 255, 255, 0.04) 2px,
+            transparent 2px,
+            transparent 14px
+        );
     }
 }
 

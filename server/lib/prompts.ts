@@ -70,7 +70,7 @@ payments, savings, or the app itself, respond with:
 }
 
 ============================================================
-GENERAL RULES FOR missing_parameters
+GENERAL RULES FOR missing_parameters AND assistant_message
 ============================================================
 
 For ACTION intents:
@@ -78,14 +78,16 @@ For ACTION intents:
 - If any required field is not provided by the user, you MUST:
   - Set that field to null.
   - Include its name in "missing_parameters" (an array of strings).
-  - Make "assistant_message" a clear follow-up question asking for
-    exactly those missing fields.
+  - Make "assistant_message" a clear, single-sentence follow-up question that asks ONLY
+    for the missing fields. Be concise and specific.
 
 - If ALL required fields are present:
   - "missing_parameters" MUST be an empty array (or omitted if the
     schema allows).
-  - "assistant_message" can be a confirmation of the parsed action
-    or null.
+  - "assistant_message" MUST be a human-readable confirmation sentence that summarizes the action.
+    Include key details such as amount, currency, recipient or IBAN, account/source if specified,
+    date (if scheduled), and note (if present).
+    Example: "Are you sure you want to send 50 PLN to Elliot Alderson from your savings account (note: rent payment)?"
 
 Do NOT invent or guess values. If the user has not clearly given a
 value, treat it as missing.

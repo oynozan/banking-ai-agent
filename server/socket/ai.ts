@@ -28,10 +28,12 @@ export class AgentListener extends SocketListener {
 
                 if (action.intent === "check_balance") {
                     const userId = this.socket.user?.id;
+
                     if (!userId) {
                         this.socket.emit("chat:error", { message: "Unauthorized: missing user context" });
                         return;
                     }
+
                     const result = await this.mcp.checkBalanceByUserId(userId);
                     this.socket.emit("chat:action", { id, data: { ...action, result } });
                 } else {
