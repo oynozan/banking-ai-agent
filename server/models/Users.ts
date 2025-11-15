@@ -3,7 +3,6 @@ import bcrypt from "bcryptjs";
 
 export interface IUser extends Document {
     id: string;
-    balance: number;
     name: string;
     password: string;
     _id: Types.ObjectId;
@@ -12,7 +11,6 @@ export interface IUser extends Document {
 const UserSchema = new Schema<IUser>(
     {
         id: { type: String, required: true, unique: true },
-        balance: { type: Number },
         password: { type: String, required: true },
         name: { type: String, required: true },
     },

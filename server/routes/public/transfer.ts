@@ -18,12 +18,15 @@ router.post("/internal", userToken, authRequired, async (req, res) => {
         amount?: number;
     };
 
+    // Validate input
     if (!fromAccountId || !toAccountId || typeof amount !== "number") {
         return res.status(400).json({ error: "IBANs and amount are required" });
     }
+
     if (amount <= 0) {
         return res.status(400).json({ error: "Amount must be greater than 0" });
     }
+
     if (fromAccountId === toAccountId) {
         return res.status(400).json({ error: "Cannot transfer to the same account" });
     }
@@ -34,10 +37,12 @@ router.post("/internal", userToken, authRequired, async (req, res) => {
     };
 
     const performTransfer = async (session?: mongoose.ClientSession): Promise<TransferResult> => {
+        // Build account queries
         const fromQuery = Accounts.findOne({
             iban: fromAccountId,
             "user.id": req.user.id,
         });
+
         const toQuery = Accounts.findOne({
             iban: toAccountId,
             "user.id": req.user.id,
@@ -50,6 +55,7 @@ router.post("/internal", userToken, authRequired, async (req, res) => {
 
         const [fromAccount, toAccount] = await Promise.all([fromQuery, toQuery]);
 
+        // Basic validations
         if (!fromAccount) {
             throw new Error("From account not found");
         }
@@ -65,15 +71,18 @@ router.post("/internal", userToken, authRequired, async (req, res) => {
             throw new Error("Insufficient funds");
         }
 
+        // Update balances
         fromAccount.balance -= amount;
         toAccount.balance += amount;
 
+        // Persist changes
         const saveOptions = session ? { session } : undefined;
         const [updatedFrom, updatedTo] = await Promise.all([
             fromAccount.save(saveOptions),
             toAccount.save(saveOptions),
         ]);
 
+        // Record transactions
         const now = new Date();
         await Transactions.create(
             [
@@ -92,6 +101,7 @@ router.post("/internal", userToken, authRequired, async (req, res) => {
                     type: "internal_transfer",
                     category: "Internal Transfer",
                 },
+
                 {
                     isSent: false,
                     participants: {
@@ -117,6 +127,7 @@ router.post("/internal", userToken, authRequired, async (req, res) => {
     let transferResult: TransferResult | null = null;
 
     try {
+        // Use transaction if possible
         let session: mongoose.ClientSession | null = null;
         try {
             session = await mongoose.startSession();
@@ -124,6 +135,7 @@ router.post("/internal", userToken, authRequired, async (req, res) => {
                 transferResult = await performTransfer(session!);
             });
         } catch (error: any) {
+            // Fall back if transactions are not supported
             if (error?.code === 20) {
                 transferResult = await performTransfer();
             } else {
@@ -139,6 +151,7 @@ router.post("/internal", userToken, authRequired, async (req, res) => {
             return res.status(500).json({ error: "Transfer failed" });
         }
 
+        // Response
         return res.status(200).json({
             success: true,
             from: {
@@ -155,6 +168,7 @@ router.post("/internal", userToken, authRequired, async (req, res) => {
     } catch (error) {
         console.error(error);
         const message = error instanceof Error ? error.message : "Internal Server Error";
+
         if (
             message === "From account not found" ||
             message === "To account not found" ||
@@ -166,6 +180,7 @@ router.post("/internal", userToken, authRequired, async (req, res) => {
         ) {
             return res.status(400).json({ error: message });
         }
+
         res.status(500).json({ error: "Internal Server Error" });
     }
 });
@@ -191,6 +206,7 @@ router.post("/external", userToken, authRequired, async (req, res) => {
     };
 
     try {
+        // Validate input
         if (
             !fromAccountId ||
             !recipientType ||
@@ -209,8 +225,6 @@ router.post("/external", userToken, authRequired, async (req, res) => {
         type TransferResult = {
             updatedFromAccount: typeof Accounts.prototype;
             updatedToAccount: typeof Accounts.prototype;
-            updatedFromUser: typeof Users.prototype;
-            updatedToUser: typeof Users.prototype;
         };
 
         const performTransfer = async (
@@ -221,16 +235,20 @@ router.post("/external", userToken, authRequired, async (req, res) => {
                 iban: fromAccountId,
                 "user.id": req.user.id,
             });
+
             const fromUserQuery = Users.findOne({ id: req.user.id });
+
             if (session) {
                 fromAccountQuery.session(session);
                 fromUserQuery.session(session);
             }
+
             const [fromAccount, fromUser] = await Promise.all([
                 fromAccountQuery,
                 fromUserQuery,
             ]);
 
+            // Sender validations
             if (!fromAccount) throw new Error("From account not found");
             if (!fromUser) throw new Error("From user not found");
             if (fromAccount.balance < amount) throw new Error("Insufficient funds");
@@ -243,6 +261,7 @@ router.post("/external", userToken, authRequired, async (req, res) => {
                 const toAccountQuery = Accounts.findOne({ iban: recipientValue });
                 if (session) toAccountQuery.session(session);
                 toAccount = await toAccountQuery;
+
                 if (!toAccount) throw new Error("Recipient account not found");
                 if (toAccount.user.id === req.user.id) {
                     throw new Error("Cannot transfer to yourself");
@@ -250,6 +269,7 @@ router.post("/external", userToken, authRequired, async (req, res) => {
                 if (toAccount.currency !== fromAccount.currency) {
                     throw new Error("Transfers between different currencies are not allowed");
                 }
+
                 const toUserQuery = Users.findOne({ id: toAccount.user.id });
                 if (session) toUserQuery.session(session);
                 toUser = await toUserQuery;
@@ -258,6 +278,7 @@ router.post("/external", userToken, authRequired, async (req, res) => {
                 const toUserQuery = Users.findOne({ id: recipientValue });
                 if (session) toUserQuery.session(session);
                 toUser = await toUserQuery;
+
                 if (!toUser) throw new Error("Recipient user not found");
                 if (toUser.id === req.user.id) {
                     throw new Error("Cannot transfer to yourself");
@@ -266,15 +287,19 @@ router.post("/external", userToken, authRequired, async (req, res) => {
                 const accountsQuery = Accounts.find({ "user.id": toUser.id });
                 if (session) accountsQuery.session(session);
                 const userAccounts = await accountsQuery;
+
                 if (!userAccounts || userAccounts.length === 0) {
                     throw new Error("Recipient account not found");
                 }
+
                 const sameCurrencyAccounts = userAccounts.filter(
                     a => a.currency === fromAccount.currency,
                 );
+
                 toAccount =
                     (sameCurrencyAccounts.find(a => a.type === "savings") as any) ||
                     (sameCurrencyAccounts[0] as any);
+
                 if (!toAccount) {
                     throw new Error("Transfers between different currencies are not allowed");
                 }
@@ -286,24 +311,14 @@ router.post("/external", userToken, authRequired, async (req, res) => {
             fromAccount.balance -= amount;
             toAccount.balance += amount;
 
-            const safeFromBalance = typeof fromUser.balance === "number" ? fromUser.balance : 0;
-            const safeToBalance = typeof toUser.balance === "number" ? toUser.balance : 0;
-            fromUser.balance = safeFromBalance - amount;
-            toUser.balance = safeToBalance + amount;
-
+            // Persist account changes
             const saveOptions = session ? { session } : undefined;
-            const [
-                updatedFromAccount,
-                updatedToAccount,
-                updatedFromUser,
-                updatedToUser,
-            ] = await Promise.all([
+            const [updatedFromAccount, updatedToAccount] = await Promise.all([
                 fromAccount.save(saveOptions),
                 toAccount.save(saveOptions),
-                fromUser.save(saveOptions),
-                toUser.save(saveOptions),
             ]);
 
+            // Record transactions
             const now = new Date();
             await Transactions.create(
                 [
@@ -326,6 +341,7 @@ router.post("/external", userToken, authRequired, async (req, res) => {
                         type: "external_transfer",
                         category,
                     },
+
                     {
                         isSent: false,
                         participants: {
@@ -349,14 +365,13 @@ router.post("/external", userToken, authRequired, async (req, res) => {
             return {
                 updatedFromAccount,
                 updatedToAccount,
-                updatedFromUser,
-                updatedToUser,
             };
         };
 
         let transferResult: TransferResult | null = null;
 
         try {
+            // Use transaction if possible
             const session = await mongoose.startSession();
             try {
                 await session.withTransaction(async () => {
@@ -366,6 +381,7 @@ router.post("/external", userToken, authRequired, async (req, res) => {
                 await session.endSession();
             }
         } catch (error: any) {
+            // Fall back if transactions are not supported
             if (error?.code === 20) {
                 transferResult = await performTransfer();
             } else {
@@ -377,6 +393,7 @@ router.post("/external", userToken, authRequired, async (req, res) => {
             return res.status(500).json({ error: "Transfer failed" });
         }
 
+        // Response
         return res.status(200).json({
             success: true,
             from: {
@@ -393,6 +410,7 @@ router.post("/external", userToken, authRequired, async (req, res) => {
     } catch (error) {
         console.error(error);
         const message = error instanceof Error ? error.message : "Internal Server Error";
+
         if (
             message === "Missing required fields" ||
             message === "Amount must be greater than 0" ||
@@ -407,6 +425,7 @@ router.post("/external", userToken, authRequired, async (req, res) => {
         ) {
             return res.status(400).json({ error: message });
         }
+
         res.status(500).json({ error: "Internal Server Error" });
     }
 });

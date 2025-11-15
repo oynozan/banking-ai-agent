@@ -17,7 +17,7 @@ export default class AI {
         }
 
         this.client = new Groq({ apiKey });
-        this.model = process.env.GROQ_MODEL || "llama-3.1-8b-instant";
+        this.model = process.env.GROQ_MODEL || "llama-3.3-70b-versatile";
     }
 
     private buildMessages(systemPrompt: string, history: ChatMessage[]): ChatMessage[] {

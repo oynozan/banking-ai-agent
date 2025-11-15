@@ -2,8 +2,9 @@ import { Router } from "express";
 import jwt from "jsonwebtoken";
 import bcrypt from "bcryptjs";
 
-import User from "../../models/Users";
 import * as dto from "../../lib/dto";
+import UserLib from "../../lib/user";
+import User from "../../models/Users";
 
 const router = Router();
 
@@ -35,10 +36,15 @@ router.post("/login", async (req, res) => {
             return;
         }
 
+        const balance = await UserLib.getBalanceByUserId(existingUser.id);
+        const accessToken = jwt.sign(
+            { id: existingUser.id, name: existingUser.name, balance },
+            process.env.JWT_SECRET as string,
+            {
+                expiresIn: "24h",
+            },
+        );
         const payload = { id: existingUser.id, name: existingUser.name };
-        const accessToken = jwt.sign(payload, process.env.JWT_SECRET as string, {
-            expiresIn: "24h",
-        });
 
         res.status(200).json({
             status: true,
@@ -74,16 +80,19 @@ router.post("/validate", (req, res) => {
                 return;
             }
 
-            const user = await User.findOne({ id: decoded.id });
+            const [user, balance] = await Promise.all([
+                User.findOne({ id: decoded.id }),
+                UserLib.getBalanceByUserId(decoded.id),
+            ]);
 
-            if (!user) {
+            if (!user || !balance) {
                 unauthorized();
                 return;
             }
 
             res.status(200).json({
                 status: true,
-                user: { id: user.id, name: user.name, balance: user.balance },
+                user: { id: user.id, name: user.name, balance },
             });
         });
     } catch (error) {
