@@ -42,17 +42,13 @@ export class SocketListeners {
     private authenticationMiddleware(io: Namespace) {
         io.use((socket, next) => {
             try {
-                const authHeader = socket.handshake.headers.authorization;
-                if (!authHeader || !authHeader.startsWith("Bearer ")) return next();
-
-                const token = authHeader.split(" ")[1];
-                if (!token) next();
+                let token: string | undefined = socket.handshake.auth?.token as string | undefined;
+                if (!token) return next();
 
                 jwt.verify(token, process.env.JWT_SECRET!, async (err, decoded) => {
                     if (err) return next(new Error("Forbidden"));
                     const userRaw = decoded as IUser;
 
-                    // get user 
                     const user = await User.findOne({ id: userRaw.id });
                     if (!user) return next(new Error("User not found"));
                     socket.user = user;

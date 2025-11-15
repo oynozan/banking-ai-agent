@@ -158,7 +158,7 @@ export function AssistantWidget() {
                     "flex flex-col shadow-xl overflow-hidden text-white",
                     isFullScreen
                         ? "w-full h-full rounded-none"
-                        : "w-120 h-[min(800px,calc(100vh-32px))] rounded-xl border-border border",
+                        : "w-120 h-[min(900px,calc(100vh-32px))] rounded-xl border-border border",
                     isOpen ? "block" : "hidden",
                 )}
             >
@@ -170,7 +170,12 @@ export function AssistantWidget() {
                 />
 
                 {/* Chat Body */}
-                <div ref={chatBodyRef} className={`chat-body flex-1 p-4 overflow-y-auto space-y-4 ${isFullScreen ? "bg-[#1c1c1c]" : "bg-zinc-50"}`}>
+                <div ref={chatBodyRef} className={`chat-body flex-1 p-4 overflow-y-auto space-y-4 bg-zinc-50`}>
+                    {!messages.length && (
+                        <div className="flex justify-center items-center h-full">
+                            <p className="text-black/80 text-center px-4">This is the start of your conversation with banking assistant.</p>
+                        </div>
+                    )}
                     {messages.map((m, i) =>
                         m.kind === "text" ? (
                             <Message key={i} message={m.text} isUser={m.isUser} />
@@ -179,6 +184,8 @@ export function AssistantWidget() {
                         ),
                     )}
                 </div>
+
+                <div className="w-full h-12 bg-card border-b border-border"></div>
 
                 {/* Chat Input */}
                 <div className="bg-card relative">

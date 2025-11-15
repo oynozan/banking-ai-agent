@@ -1,6 +1,6 @@
+import { MCP } from "../lib/mcp";
 import { SocketListener } from "../socket";
 import AI, { type ChatMessage } from "../lib/ai";
-import { MCP } from "../lib/mcp";
 
 export class AgentListener extends SocketListener {
     private ai: AI;
@@ -28,14 +28,22 @@ export class AgentListener extends SocketListener {
 
                 if (action.intent === "check_balance") {
                     const userId = this.socket.user?.id;
-
                     if (!userId) {
                         this.socket.emit("chat:error", { message: "Unauthorized: missing user context" });
                         return;
                     }
 
                     const result = await this.mcp.checkBalanceByUserId(userId);
-                    this.socket.emit("chat:action", { id, data: { ...action, result } });
+                    const reply = await this.ai.summarizeBalance(result, this.history.slice(-this.maxHistory));
+
+                    this.socket.emit("chat:action", { id, data: { ...action, result, assistant_message: reply } });
+
+                    if (reply && reply.trim()) {
+                        this.history.push({ role: "assistant", content: reply });
+                        if (this.history.length > this.maxHistory) {
+                            this.history = this.history.slice(-this.maxHistory);
+                        }
+                    }
                 } else {
                     // passthrough for now
                     this.socket.emit("chat:action", { id, data: action });

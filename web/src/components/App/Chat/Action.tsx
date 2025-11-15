@@ -22,19 +22,17 @@ export default function Action({ id, text, status }: Props) {
 	};
 
 	const cancelled = status === "cancelled";
-	const accepted = status === "accepted";
 
 	return (
 		<div className="flex justify-start">
 			<div className="bg-[#13181a] bg-diagonal-stripes text-white p-8 rounded-xl w-full">
-				<p className="mb-3">
+				<p>
 					{text}{" "}
 					{cancelled && <span className="text-xs text-gray-400">[cancelled]</span>}
-					{accepted && <span className="text-xs text-gray-400">[accepted]</span>}
 				</p>
 
 				{status === "pending" && (
-					<div className="w-full flex gap-2">
+					<div className="w-full flex gap-2 mt-2">
 						<Button
 							variant="outline"
 							onClick={decline}

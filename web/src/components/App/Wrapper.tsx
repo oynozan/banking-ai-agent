@@ -6,6 +6,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 import { useUser } from "@/lib/states";
 import { Toaster } from "@/components/ui/sonner";
+import { connectSocket, setSocketAuthToken } from "@/lib/socket";
 
 const queryClient = new QueryClient()
 
@@ -50,6 +51,10 @@ export default function Wrapper({ children }: { children: React.ReactNode }) {
 
                 setUser(data.user);
                 setState("logged_in");
+
+                // Wire socket auth and connect after login
+                setSocketAuthToken(accessToken);
+                connectSocket();
             })();
         }
     }, [user]);

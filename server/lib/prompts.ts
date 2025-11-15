@@ -394,6 +394,8 @@ Rules:
 - If the user is asking to perform an app action (see intents list) AND all required fields are present,
   choose: {"mode":"action","intent":"<one of the intents>"}
 - Otherwise, choose: {"mode":"casual","intent":null}
+- If user does not want to perform an app action, choose: {"mode":"casual","intent":null}
+- If user has not provided all required information, choose: {"mode":"casual","intent":null}, and ask for the missing information.
 
 Allowed intents:
 - transfer_money, schedule_transfer, cancel_scheduled_transfer, check_balance, show_transactions,
@@ -405,4 +407,24 @@ Output exactly one JSON object with keys: mode, intent.
 Examples:
 {"mode":"casual","intent":null}
 {"mode":"action","intent":"transfer_money"}
+{"mode":"action","intent":"check_balance"}
+{"mode":"action","intent":"transfer_money"}
+{"mode":"action","intent":"schedule_transfer"}
+{"mode":"action","intent":"cancel_scheduled_transfer"}
+{"mode":"action","intent":"check_balance"}
+{"mode":"action","intent":"show_transactions"}
+{"mode":"action","intent":"filter_transactions_category"}
+{"mode":"action","intent":"filter_transactions_timerange"}
+{"mode":"action","intent":"freeze_card"}
+{"mode":"action","intent":"unfreeze_card"}
+{"mode":"action","intent":"change_card_limit"}
+{"mode":"action","intent":"show_card_pin"}
+{"mode":"action","intent":"report_card_lost"}
+{"mode":"action","intent":"replace_card"}
+{"mode":"action","intent":"create_savings_goal"}
+{"mode":"action","intent":"add_to_savings"}
+{"mode":"action","intent":"show_savings_goals"}
+{"mode":"action","intent":"show_iban"}
+{"mode":"action","intent":"add_contact"}
+{"mode":"action","intent":"confirm_alias_match"}
 `;

@@ -75,4 +75,22 @@ export default class AI {
             return { mode: "casual", intent: null };
         }
     }
+
+    async summarizeBalance(result: unknown, history: ChatMessage[]): Promise<string> {
+        const steer: ChatMessage = {
+            role: "user",
+            content:
+                `Given this data: ${JSON.stringify(result)} ` +
+                `write one concise plain-text sentence telling the user their current balance(s).`,
+        } as const;
+        const messages = this.buildMessages(CASUAL_PROMPT, [...history, steer]);
+
+        const response = await this.client.chat.completions.create({
+            model: this.model,
+            messages,
+            temperature: 0,
+            stream: false,
+        });
+        return response.choices?.[0]?.message?.content?.trim() ?? "";
+    }
 }
