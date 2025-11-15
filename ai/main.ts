@@ -1,60 +1,18 @@
 import Groq from "groq-sdk";
 import * as readline from "readline";
 import * as dotenv from "dotenv";
-import { ContactManager, Contact } from "./contacts";
+import { ContactManager } from "./contacts";
 import { TransactionTracker } from "./transaction-tracker";
 import { SYSTEM_PROMPT } from "./prompt";
+import {
+  Message,
+  AssistantResponse,
+  AddContactResponse,
+  TransferMoneyResponse,
+} from "./types";
 
 // Load .env for GROQ_API_KEY
 dotenv.config();
-
-// ============================================================
-// TYPES
-// ============================================================
-
-interface Message {
-  role: "system" | "user" | "assistant";
-  content: string;
-}
-
-interface BaseResponse {
-  intent: string;
-  assistant_message?: string | null;
-}
-
-interface ActionResponse extends BaseResponse {
-  missing_parameters?: string[];
-}
-
-interface TransferMoneyResponse extends ActionResponse {
-  amount?: number | null;
-  currency?: string | null;
-  recipient?: string | null;
-  recipient_iban?: string | null;
-  date?: string | null;
-  note?: string | null;
-}
-
-interface AddContactResponse extends ActionResponse {
-  first_name?: string | null;
-  last_name?: string | null;
-  account_id?: string | null;
-  iban?: string | null;
-  alias?: string | null;
-}
-
-interface CardActionResponse extends ActionResponse {
-  card_type?: string | null;
-}
-
-interface SavingsGoalResponse extends ActionResponse {
-  goal_name?: string | null;
-  target_amount?: number | null;
-  currency?: string | null;
-  due_date?: string | null;
-}
-
-type AssistantResponse = BaseResponse | ActionResponse | TransferMoneyResponse | AddContactResponse | CardActionResponse | SavingsGoalResponse;
 
 // ============================================================
 // Groq client setup
@@ -82,7 +40,7 @@ async function chatStep(
   history.push({ role: "user", content: userMessage });
 
   const response = await client.chat.completions.create({
-    model: "llama-3.3-70b-versatile",
+    model: "llama-3.1-8b-instant",
     messages: history,
     temperature: 0,
     response_format: { type: "json_object" },
@@ -97,7 +55,8 @@ async function chatStep(
   } catch (error) {
     return {
       intent: "unsupported",
-      assistant_message: "There was an internal parsing error. Please try again.",
+      assistant_message:
+        "There was an internal parsing error. Please try again.",
     };
   }
 }
@@ -107,7 +66,7 @@ async function chatStep(
 // ============================================================
 
 async function handleTransferMoney(
-  result: any,
+  result: TransferMoneyResponse,
   contactManager: ContactManager,
   transactionTracker: TransactionTracker,
   client: Groq,
@@ -117,17 +76,21 @@ async function handleTransferMoney(
 
   // If recipient_iban is provided, use it directly
   if (recipient_iban) {
-    console.log(`✅ Processing transfer: ${amount} ${currency} to IBAN ${recipient_iban}`);
-    
+    console.log(
+      `✅ Processing transfer: ${amount} ${currency} to IBAN ${recipient_iban}`
+    );
+
     // Track this transaction
     const count = transactionTracker.recordTransaction(recipient_iban);
-    
+
     // Check if we should suggest adding to contacts
     if (count === 10) {
       const suggestResult = await chatStep(
         client,
         history,
-        `The user has made 10 transactions with ${recipient || recipient_iban}. Ask them if they would like to add this person to their contacts, and if they want to set a custom alias.`
+        `The user has made 10 transactions with ${
+          recipient || recipient_iban
+        }. Ask them if they would like to add this person to their contacts, and if they want to set a custom alias.`
       );
       return suggestResult;
     }
@@ -137,14 +100,18 @@ async function handleTransferMoney(
   // Try to find contact by alias
   if (recipient) {
     const contact = contactManager.findByAlias(recipient);
-    
+
     if (contact) {
-      console.log(`✅ Found contact: ${contact.firstName} ${contact.lastName} (${contact.alias})`);
-      console.log(`✅ Processing transfer: ${amount} ${currency} to ${contact.iban}`);
-      
+      console.log(
+        `✅ Found contact: ${contact.firstName} ${contact.lastName} (${contact.alias})`
+      );
+      console.log(
+        `✅ Processing transfer: ${amount} ${currency} to ${contact.iban}`
+      );
+
       // Track this transaction
       const count = transactionTracker.recordTransaction(contact.iban);
-      
+
       // Check if we should suggest adding to contacts (shouldn't happen for existing contacts, but just in case)
       if (count === 10) {
         const suggestResult = await chatStep(
@@ -162,11 +129,11 @@ async function handleTransferMoney(
     if (allContacts.length > 0) {
       // Ask AI to match the alias
       const contactList = allContacts
-        .map(c => `- ${c.alias} (${c.firstName} ${c.lastName})`)
+        .map((c) => `- ${c.alias} (${c.firstName} ${c.lastName})`)
         .join("\n");
-      
+
       const matchPrompt = `The user said "${recipient}" but no exact alias match was found. Here are the saved contacts:\n${contactList}\n\nDoes "${recipient}" match any of these aliases semantically (e.g., "mama" matches "mother", "dad" matches "father")? If yes, respond with confirm_alias_match intent and include the matched contact's name in assistant_message to confirm with the user. If no match, ask the user to provide the recipient's IBAN or add them to contacts first.`;
-      
+
       const matchResult = await chatStep(client, history, matchPrompt);
       return matchResult;
     }
@@ -232,12 +199,26 @@ async function main(): Promise<void> {
 
       // Handle specific intents
       let followUpResult: AssistantResponse | null = null;
-      
-      if (result.intent === "transfer_money" || result.intent === "schedule_transfer") {
-        followUpResult = await handleTransferMoney(result, contactManager, transactionTracker, client, history);
+
+      if (
+        result.intent === "transfer_money" ||
+        result.intent === "schedule_transfer"
+      ) {
+        followUpResult = await handleTransferMoney(
+          result as TransferMoneyResponse,
+          contactManager,
+          transactionTracker,
+          client,
+          history
+        );
       } else if (result.intent === "add_contact") {
         const contact = result as AddContactResponse;
-        if (contact.first_name && contact.last_name && contact.account_id && contact.iban) {
+        if (
+          contact.first_name &&
+          contact.last_name &&
+          contact.account_id &&
+          contact.iban
+        ) {
           const alias = contact.alias || contact.first_name;
           contactManager.addContact({
             firstName: contact.first_name,
@@ -246,7 +227,9 @@ async function main(): Promise<void> {
             iban: contact.iban,
             alias: alias,
           });
-          console.log(`✅ Contact added: ${contact.first_name} ${contact.last_name} (alias: ${alias})`);
+          console.log(
+            `✅ Contact added: ${contact.first_name} ${contact.last_name} (alias: ${alias})`
+          );
         }
       }
 
