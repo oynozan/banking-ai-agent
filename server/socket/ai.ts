@@ -161,6 +161,7 @@ export class AgentListener extends SocketListener {
                     }
                 }
             } catch (e) {
+                console.error(e);
                 this.socket.emit("chat:error", { message: "Failed to process message" });
             } finally {
                 this.isStreaming = false;
