@@ -11,6 +11,7 @@ import {
   TransferMoneyResponse,
 } from "./types";
 import { getGroqClient, chatStep } from "./llm";
+import { speak } from "./tts"; // 🔊 TTS
 
 // ============================================================
 // Transfer handler
@@ -174,11 +175,13 @@ async function main(): Promise<void> {
       // Show the primary assistant message
       if (result.assistant_message) {
         console.log(`\n💬 Assistant: ${result.assistant_message}`);
+        void speak(result.assistant_message); // 🔊 TTS for main reply
       }
 
       // Show follow-up message if there was one from transaction handling
       if (followUpResult && followUpResult.assistant_message) {
         console.log(`\n💬 Assistant: ${followUpResult.assistant_message}`);
+        void speak(followUpResult.assistant_message); // 🔊 TTS for follow-up
       }
 
       console.log("\n" + "-".repeat(60) + "\n");
