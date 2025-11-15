@@ -2,6 +2,7 @@ import cookie from "cookie";
 import jwt from "jsonwebtoken";
 import type { Socket, Server, Namespace } from "socket.io";
 
+import User from "../models/Users";
 import type { IUser } from "../models/Users";
 
 // Listener imports
@@ -29,15 +30,12 @@ export class SocketListeners {
     }
 
     publicListeners() {
-        this.io.on("connection", (socket: Socket) => {
-            const publicIO = this.io.of("/");
-            this.authenticationMiddleware(publicIO);
+        const publicIO = this.io.of("/");
+        this.authenticationMiddleware(publicIO);
 
-            // Listeners
-            new SocketPing(this.io, socket).listen();
-            publicIO.on("connection", (socket: Socket) => {
-                new AgentListener(publicIO, socket).listen();
-            });
+        publicIO.on("connection", (socket: Socket) => {
+            new SocketPing(publicIO, socket).listen();
+            new AgentListener(publicIO, socket).listen();
         });
     }
 
@@ -50,9 +48,15 @@ export class SocketListeners {
                 const token = authHeader.split(" ")[1];
                 if (!token) next();
 
-                jwt.verify(token, process.env.JWT_SECRET!, (err, decoded) => {
+                jwt.verify(token, process.env.JWT_SECRET!, async (err, decoded) => {
                     if (err) return next(new Error("Forbidden"));
-                    socket.user = decoded as IUser;
+                    const userRaw = decoded as IUser;
+
+                    // get user 
+                    const user = await User.findOne({ id: userRaw.id });
+                    if (!user) return next(new Error("User not found"));
+                    socket.user = user;
+
                     next();
                 });
             } catch (e) {

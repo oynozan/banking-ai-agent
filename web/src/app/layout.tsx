@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { Inter, Noto_Sans } from "next/font/google";
 
 import "@/styles/globals.css";
-import { AssistantWidget } from "@/components/App/AssistantWidget/AssistantWidget";
+import { AssistantWidget } from "@/components/App/Chat/AssistantWidget";
 
 const inter = Inter({
     subsets: ["latin"],
