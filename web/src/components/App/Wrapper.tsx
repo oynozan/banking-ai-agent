@@ -17,7 +17,7 @@ export default function Wrapper({ children }: { children: React.ReactNode }) {
 
             // if no access token, redirect to login page
             if (!accessToken) {
-                // router.replace("/login");
+                router.replace("/login");
                 return;
             }
 
@@ -25,15 +25,12 @@ export default function Wrapper({ children }: { children: React.ReactNode }) {
             (async () => {
                 setState("loading");
 
-                const response = await fetch(
-                    `${process.env.NEXT_PUBLIC_API_URL}/public/auth/validate`,
-                    {
-                        method: "POST",
-                        headers: {
-                            Authorization: `Bearer ${accessToken}`,
-                        },
+                const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/auth/validate`, {
+                    method: "POST",
+                    headers: {
+                        Authorization: `Bearer ${accessToken}`,
                     },
-                );
+                });
 
                 if (!response || !response.ok || response.status === 401) {
                     setState("not_logged_in");
@@ -47,6 +44,7 @@ export default function Wrapper({ children }: { children: React.ReactNode }) {
                 }
 
                 const data = await response.json();
+                console.log(data);
 
                 setUser(data.user);
                 setState("logged_in");

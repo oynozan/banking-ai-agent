@@ -26,7 +26,7 @@ const AccountSchema = new Schema<IAccount>(
         currency: { type: String, enum: ["USD", "EUR", "PLN"], required: true },
         createdAt: { type: Date, required: true, default: Date.now },
     },
-    { versionKey: false }
+    { versionKey: false },
 );
 
 const User: Model<IAccount> =

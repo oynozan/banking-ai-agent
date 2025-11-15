@@ -11,11 +11,11 @@ export function QuickActionCard({ icon: Icon, title, description, onClick }: Qui
     return (
         <button
             onClick={onClick}
-            className="bg-card rounded-sm p-6 border border-[#FFD700]/20 hover:border-[#FFD700]/40 transition-all group text-left w-full"
+            className="bg-card rounded-sm p-6 border border-gold/30 hover:border-gold/45 transition-all group text-left w-full"
         >
             <div className="flex items-start gap-4">
-                <div className="p-3 bg-[#FFD700]/10 rounded-lg group-hover:bg-[#FFD700]/20 transition-colors">
-                    <Icon className="text-[#FFD700]" size={24} />
+                <div className="p-3 bg-gold/10 rounded-lg group-hover:bg-gold/20 transition-colors">
+                    <Icon className="text-gold" size={24} />
                 </div>
                 <div className="flex-1">
                     <h3 className="text-white mb-1">{title}</h3>

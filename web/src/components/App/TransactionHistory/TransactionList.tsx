@@ -15,7 +15,7 @@ interface TransactionListProps {
 
 export function TransactionList({ transactions }: TransactionListProps) {
     return (
-        <div className="bg-card rounded-sm p-6 border border-[#FFD700]/20">
+        <div className="bg-card rounded-sm p-6 border border-gold/30 hover:border-gold/45 transition-all shadow-xl">
             <h2 className="text-xl text-white mb-6">Recent Transactions</h2>
             <div className="space-y-1 max-h-[400px] overflow-y-auto custom-scrollbar">
                 {transactions.map(transaction => (
@@ -27,7 +27,7 @@ export function TransactionList({ transactions }: TransactionListProps) {
                             <div
                                 className={`p-2 rounded-full ${
                                     transaction.type === "credit"
-                                        ? "bg-[#FFD700]/20 text-[#FFD700]"
+                                        ? "bg-gold/20 text-gold"
                                         : "bg-gray-700 text-gray-300"
                                 }`}
                             >
@@ -46,7 +46,7 @@ export function TransactionList({ transactions }: TransactionListProps) {
                         </div>
                         <div
                             className={`${
-                                transaction.type === "credit" ? "text-[#FFD700]" : "text-white"
+                                transaction.type === "credit" ? "text-gold" : "text-white"
                             }`}
                         >
                             {transaction.type === "credit" ? "+" : "-"}$

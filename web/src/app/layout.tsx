@@ -28,7 +28,8 @@ export default function RootLayout({
 }>) {
     return (
         <html lang="en">
-            <body className={`${inter.variable} ${notoSans.variable} antialiased`}>{children}
+            <body className={`${inter.variable} ${notoSans.variable} antialiased`}>
+                {children}
                 <AssistantWidget />
             </body>
         </html>

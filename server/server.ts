@@ -18,7 +18,7 @@ const app: Application = express();
 const server = require("http").createServer(app);
 
 app.set("trust proxy", 1);
-app.use(cors({ origin: process.env.CLIENT!, credentials: true }));
+app.use(cors({ origin: "*" }));
 app.use(helmet());
 app.use(
     rateLimit({

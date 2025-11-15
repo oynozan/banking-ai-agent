@@ -20,7 +20,7 @@ export function LoginForm() {
 
     useEffect(() => {
         if (user) router.replace("/");
-    }, [user])
+    }, [user]);
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -28,33 +28,45 @@ export function LoginForm() {
         setIsLoading(true);
         setState("loading");
 
-        const loginResponse = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/public/auth/login`, {
-            method: "POST",
-            body: JSON.stringify({ id, password }),
-        });
+        try {
+            const loginResponse = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/auth/login`, {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                },
+                body: JSON.stringify({ id, password }),
+            });
 
-        if (!loginResponse.ok) {
+            if (!loginResponse.ok) {
+                toast.error("An error occurred during login. Please try again.");
+                setIsLoading(false);
+                setState("not_logged_in");
+                return;
+            }
+
+            const loginData = await loginResponse.json();
+
+            if (!loginData.status) {
+                toast.error(loginData.error || "Invalid credentials. Please try again.");
+                setIsLoading(false);
+                setState("not_logged_in");
+                return;
+            }
+
+            // set user data & access token
+            setUser(loginData.user);
+            setState("logged_in");
+
+            localStorage.setItem("accessToken", loginData.accessToken);
+            toast.success("Logged in successfully!");
+
+            router.replace("/");
+        } catch (error) {
+            console.error(error);
             toast.error("An error occurred during login. Please try again.");
             setIsLoading(false);
             setState("not_logged_in");
-            return;
         }
-
-        const loginData = await loginResponse.json();
-
-        if (!loginData.status) {
-            toast.error(loginData.error || "Invalid credentials. Please try again.");
-            setIsLoading(false);
-            setState("not_logged_in");
-            return;
-        }
-
-        // set user data & access token
-        setUser(loginData.user);
-        setState("logged_in");
-
-        localStorage.setItem("accessToken", loginData.accessToken);
-        toast.success("Logged in successfully!");
     };
 
     return (
@@ -97,20 +109,20 @@ export function LoginForm() {
             </div>
 
             {/* Forgot Password Link */}
-            <div className="flex justify-end">
+            {/* <div className="flex justify-end">
                 <button
                     type="button"
                     className="text-sm text-white/60 hover:text-[#FFD700] transition-colors underline decoration-[#FFD700]/0 hover:decoration-[#FFD700] underline-offset-4"
                 >
                     Forgot Password?
                 </button>
-            </div>
+            </div> */}
 
             {/* Login Button */}
             <Button
                 type="submit"
                 disabled={isLoading}
-                className="w-full h-12 bg-[#FFD700] text-card hover:bg-[#FFD700]/90 shadow-lg shadow-[#FFD700]/20"
+                className="w-full h-12 bg-[#FFD700] text-card hover:bg-[#FFD700]/90 shadow-lg shadow-[#FFD700]/20 rounded-xl!"
             >
                 {isLoading ? "Logging in..." : "Login"}
             </Button>

@@ -29,19 +29,20 @@ export const verifyToken = (req: Request, res: Response, next: NextFunction): vo
  * Used to identify the user making the request
  */
 export const userToken = (req: Request, res: Response, next: NextFunction): void => {
-    // Get user cookie
-    const rawJWT = req.cookies.auth;
+    const authHeader = req.headers.authorization;
+    const token =
+        authHeader && authHeader.startsWith("Bearer ") ? authHeader.split(" ")[1] : undefined;
 
-    if (rawJWT) {
-        jwt.verify(rawJWT, process.env.JWT_SECRET as string, (err: any, decoded: any) => {
+    if (token) {
+        jwt.verify(token, process.env.JWT_SECRET as string, (err: any, decoded: any) => {
             if (err) {
-                res.status(403).json({ error: "Invalid or expired token" });
-                return;
+                // do not block public routes, just proceed without user
+                return next();
             }
-
-            // Attach decoded user data to request object for use in route handlers
             if (decoded) req.user = decoded;
+            next();
         });
+        return;
     }
 
     next();

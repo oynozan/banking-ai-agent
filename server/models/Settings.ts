@@ -13,7 +13,7 @@ const SettingsSchema = new Schema<ISettings>(
         moneyTransferLimit: { type: Number, required: true },
         cardSpendingLimit: { type: Number, required: true },
     },
-    { versionKey: false }
+    { versionKey: false },
 );
 
 const Settings: Model<ISettings> =

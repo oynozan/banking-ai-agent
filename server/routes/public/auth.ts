@@ -1,9 +1,50 @@
 import { Router } from "express";
+import jwt from "jsonwebtoken";
+import bcrypt from "bcryptjs";
+
+import User from "../../models/Users";
+import * as dto from "../../lib/dto";
 
 const router = Router();
 
-router.post("/login", (req, res) => {
+router.post("/login", async (req, res) => {
     try {
+        const parsed = dto.loginSchema.safeParse(req.body);
+        if (!parsed.success) {
+            res.status(400).json({
+                status: false,
+                error: "Invalid request body",
+                details: parsed.error.flatten(),
+            });
+            return;
+        }
+
+        const { id, password } = parsed.data;
+
+        const existingUser = await User.findOne({ id });
+
+        if (!existingUser) {
+            res.status(401).json({ status: false, error: "Invalid credentials." });
+            return;
+        }
+
+        const isValid = await bcrypt.compare(password, existingUser.password || "");
+
+        if (!isValid) {
+            res.status(401).json({ status: false, error: "Invalid credentials." });
+            return;
+        }
+
+        const payload = { id: existingUser.id, name: existingUser.name };
+        const accessToken = jwt.sign(payload, process.env.JWT_SECRET as string, {
+            expiresIn: "24h",
+        });
+
+        res.status(200).json({
+            status: true,
+            user: payload,
+            accessToken,
+        });
     } catch (error) {
         console.error(error);
         res.status(500).json({ error: "Internal Server Error" });
@@ -16,19 +57,35 @@ router.post("/validate", (req, res) => {
     };
 
     try {
-        // Get access token from header
-        const accessToken = req.headers.authorization?.split(" ")[1];
+        const parsedHeader = dto.authHeaderSchema.safeParse({
+            authorization: req.headers.authorization ?? "",
+        });
 
-        if (!accessToken) {
+        if (!parsedHeader.success) {
             unauthorized();
             return;
         }
 
-        // Get user info from access token
-        const user = false;
+        const token = parsedHeader.data.authorization.split(" ")[1];
 
-        if (user) res.status(200).json({ status: true, user: { id: "user-id", name: "John Doe" } });
-        else unauthorized();
+        jwt.verify(token, process.env.JWT_SECRET as string, async (err: any, decoded: any) => {
+            if (err || !decoded) {
+                unauthorized();
+                return;
+            }
+
+            const user = await User.findOne({ id: decoded.id });
+
+            if (!user) {
+                unauthorized();
+                return;
+            }
+
+            res.status(200).json({
+                status: true,
+                user: { id: user.id, name: user.name, balance: user.balance },
+            });
+        });
     } catch (error) {
         console.error(error);
         res.status(500).json({ error: "Internal Server Error" });

@@ -1,15 +1,14 @@
-import { LoginForm } from "@/components/App/Forms/LoginForm";
-import { Shield } from "lucide-react";
 import Image from "next/image";
+
+import { LoginForm } from "@/components/App/Forms/LoginForm";
 
 export default function LoginPage() {
     return (
         <div className="min-h-screen flex items-center justify-center p-4">
-
             <div className="relative w-full max-w-md">
                 <div className="bg-card/80 backdrop-blur-sm border border-white/10 rounded-2xl shadow-2xl p-8 md:p-10">
                     <div className="mb-8">
-                        <Image src='/logo.svg' alt='logo' width={500} height={40}  />
+                        <Image src="/logo.svg" alt="logo" width={500} height={40} />
                     </div>
 
                     <LoginForm />

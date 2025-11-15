@@ -35,7 +35,7 @@ const TransactionSchema = new Schema<ITransaction>(
         type: { type: String, enum: ["credit", "debit"], required: true },
         category: { type: String, required: true },
     },
-    { versionKey: false }
+    { versionKey: false },
 );
 
 const Transaction: Model<ITransaction> =
