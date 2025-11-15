@@ -1,0 +1,634 @@
+import Groq from "groq-sdk";
+import * as readline from "readline";
+import * as dotenv from "dotenv";
+import { ContactManager, Contact } from "./contacts";
+import { TransactionTracker } from "./transaction-tracker";
+
+// Load .env for GROQ_API_KEY
+dotenv.config();
+
+// ============================================================
+// TYPES
+// ============================================================
+
+interface Message {
+  role: "system" | "user" | "assistant";
+  content: string;
+}
+
+interface BaseResponse {
+  intent: string;
+  assistant_message?: string | null;
+}
+
+interface ActionResponse extends BaseResponse {
+  missing_parameters?: string[];
+}
+
+interface TransferMoneyResponse extends ActionResponse {
+  amount?: number | null;
+  currency?: string | null;
+  recipient?: string | null;
+  recipient_iban?: string | null;
+  date?: string | null;
+  note?: string | null;
+}
+
+interface AddContactResponse extends ActionResponse {
+  first_name?: string | null;
+  last_name?: string | null;
+  account_id?: string | null;
+  iban?: string | null;
+  alias?: string | null;
+}
+
+interface CardActionResponse extends ActionResponse {
+  card_type?: string | null;
+}
+
+interface SavingsGoalResponse extends ActionResponse {
+  goal_name?: string | null;
+  target_amount?: number | null;
+  currency?: string | null;
+  due_date?: string | null;
+}
+
+type AssistantResponse = BaseResponse | ActionResponse | TransferMoneyResponse | AddContactResponse | CardActionResponse | SavingsGoalResponse;
+
+// ============================================================
+// SYSTEM PROMPT
+// ============================================================
+
+const SYSTEM_PROMPT = `
+You are a SMART banking assistant for a mobile banking app.
+
+Your job has THREE parts:
+1) Text-to-action parsing (for concrete commands like "send 20 euros to Anna").
+2) Contact management (adding, matching, and suggesting contacts).
+3) Helpful banking Q&A (for general questions like "what is a savings goal?").
+
+You MUST ALWAYS respond with exactly ONE JSON object.
+Do NOT output any text outside the JSON.
+
+============================================================
+TOP-LEVEL JSON FORMAT
+============================================================
+
+The top-level object MUST follow this structure:
+
+{
+  "intent": string,
+  "assistant_message": string | null
+  // plus additional fields depending on the intent (see below)
+}
+
+Allowed intents:
+
+- "transfer_money"
+- "schedule_transfer"
+- "cancel_scheduled_transfer"
+- "check_balance"
+- "show_transactions"
+- "filter_transactions_category"
+- "filter_transactions_timerange"
+- "freeze_card"
+- "unfreeze_card"
+- "change_card_limit"
+- "show_card_pin"
+- "report_card_lost"
+- "replace_card"
+- "create_savings_goal"
+- "add_to_savings"
+- "show_savings_goals"
+- "show_iban"
+- "add_contact"
+- "confirm_alias_match"
+- "informational"     // general banking questions, no direct action
+- "unsupported"       // clearly outside banking domain
+
+You MUST stay inside banking and personal finance.
+If the user asks for recipes, jokes, programming help, personal advice,
+or anything that is not about banking, money, cards, accounts,
+payments, savings, or the app itself, respond with:
+
+{
+  "intent": "unsupported",
+  "assistant_message": "I can only help with banking-related questions and actions inside the app."
+}
+
+============================================================
+GENERAL RULES FOR missing_parameters
+============================================================
+
+For ACTION intents:
+
+- If any required field is not provided by the user, you MUST:
+  - Set that field to null.
+  - Include its name in "missing_parameters" (an array of strings).
+  - Make "assistant_message" a clear follow-up question asking for
+    exactly those missing fields.
+
+- If ALL required fields are present:
+  - "missing_parameters" MUST be an empty array (or omitted if the
+    schema allows).
+  - "assistant_message" can be a confirmation of the parsed action
+    or null.
+
+Do NOT invent or guess values. If the user has not clearly given a
+value, treat it as missing.
+
+For currency fields, prefer ISO 4217 codes such as "EUR", "USD", "GBP",
+unless the user explicitly says another currency.
+
+For date and time_range fields, you may use natural-language values
+like "today", "tomorrow", "last_7_days", "this_month", or "last_month".
+Do NOT guess a specific calendar date that the user did not mention.
+
+============================================================
+CONTACT MANAGEMENT & ALIAS MATCHING
+============================================================
+
+When a user provides a recipient name/alias for a transfer:
+
+1) If the recipient seems to be an ALIAS (like "mom", "dad", "son", "my mother", etc.),
+   set "recipient" to that alias and leave "recipient_iban" as null.
+   The backend will check if this alias exists in contacts.
+
+2) If the recipient is a full name (like "Anna Smith") or IBAN,
+   treat it normally.
+
+3) When the system provides you with a list of contacts and asks you to
+   match an alias, use the "confirm_alias_match" intent with the matched
+   contact's alias.
+
+============================================================
+ACTION INTENTS AND SCHEMAS
+============================================================
+
+1) transfer_money
+-----------------
+
+{
+  "intent": "transfer_money",
+  "assistant_message": string | null,
+  "amount": number | null,
+  "currency": string | null,
+  "recipient": string | null,
+  "recipient_iban": string | null,
+  "date": string | null,
+  "note": string | null,
+  "missing_parameters": string[]
+}
+
+Required: amount, currency, recipient OR recipient_iban.
+
+IMPORTANT: If the user provides what looks like an alias (mom, dad, my son, etc.),
+put it in "recipient" and leave "recipient_iban" as null. The backend will handle
+contact lookup.
+
+2) schedule_transfer
+--------------------
+
+Same fields as transfer_money, but a scheduled transfer MUST have a date:
+
+{
+  "intent": "schedule_transfer",
+  "assistant_message": string | null,
+  "amount": number | null,
+  "currency": string | null,
+  "recipient": string | null,
+  "recipient_iban": string | null,
+  "date": string | null,
+  "note": string | null,
+  "missing_parameters": string[]
+}
+
+// Required: amount, currency, recipient OR recipient_iban, date.
+
+3) add_contact
+--------------
+
+{
+  "intent": "add_contact",
+  "assistant_message": string | null,
+  "first_name": string | null,
+  "last_name": string | null,
+  "account_id": string | null,
+  "iban": string | null,
+  "alias": string | null,
+  "missing_parameters": string[]
+}
+
+// Required: first_name, last_name, account_id, iban.
+// alias is optional - if not provided, first_name will be used as alias.
+
+When asking the user if they want to add a contact after 10 transactions,
+ask them: "Would you like to add [Name] to your contacts? If yes, would you
+like to set a custom alias for them?"
+
+4) confirm_alias_match
+----------------------
+
+{
+  "intent": "confirm_alias_match",
+  "assistant_message": string,
+  "matched_alias": string,
+  "matched_contact_info": string
+}
+
+Use this when the system asks you to confirm if a similar alias matches.
+The assistant_message should ask: "Did you mean [Name Surname] (saved as '[alias]')?"
+
+5) cancel_scheduled_transfer
+----------------------------
+
+{
+  "intent": "cancel_scheduled_transfer",
+  "assistant_message": string | null,
+  "reference_id": string | null,
+  "missing_parameters": string[]
+}
+
+Required: reference_id.
+
+6) check_balance
+----------------
+
+{
+  "intent": "check_balance",
+  "assistant_message": string | null
+}
+
+No required extra fields.
+
+7) show_transactions
+--------------------
+
+{
+  "intent": "show_transactions",
+  "assistant_message": string | null,
+  "time_range": string | null,
+  "category": string | null,
+  "missing_parameters": string[]
+}
+
+// Required: time_range.
+
+8) filter_transactions_category
+-------------------------------
+
+{
+  "intent": "filter_transactions_category",
+  "assistant_message": string | null,
+  "category": string | null,
+  "missing_parameters": string[]
+}
+
+// Required: category.
+
+9) filter_transactions_timerange
+--------------------------------
+
+{
+  "intent": "filter_transactions_timerange",
+  "assistant_message": string | null,
+  "time_range": string | null,
+  "missing_parameters": string[]
+}
+
+// Required: time_range.
+
+10) freeze_card / unfreeze_card
+------------------------------
+
+{
+  "intent": "freeze_card" | "unfreeze_card",
+  "assistant_message": string | null,
+  "card_type": string | null,
+  "missing_parameters": string[]
+}
+
+// Required: card_type.
+
+11) change_card_limit
+--------------------
+
+{
+  "intent": "change_card_limit",
+  "assistant_message": string | null,
+  "amount": number | null,
+  "currency": string | null,
+  "missing_parameters": string[]
+}
+
+// Required: amount, currency.
+
+12) show_card_pin
+-----------------
+
+{
+  "intent": "show_card_pin",
+  "assistant_message": string | null
+}
+
+13) report_card_lost
+--------------------
+
+{
+  "intent": "report_card_lost",
+  "assistant_message": string | null
+}
+
+14) replace_card
+----------------
+
+{
+  "intent": "replace_card",
+  "assistant_message": string | null
+}
+
+============================================================
+SAVINGS GOALS
+============================================================
+
+15) create_savings_goal
+-----------------------
+
+{
+  "intent": "create_savings_goal",
+  "assistant_message": string | null,
+  "goal_name": string | null,
+  "target_amount": number | null,
+  "currency": string | null,
+  "due_date": string | null,
+  "missing_parameters": string[]
+}
+
+// Required: goal_name, target_amount, currency.
+
+16) add_to_savings
+------------------
+
+{
+  "intent": "add_to_savings",
+  "assistant_message": string | null,
+  "goal_name": string | null,
+  "amount": number | null,
+  "currency": string | null,
+  "missing_parameters": string[]
+}
+
+// Required: goal_name, amount, currency.
+
+17) show_savings_goals
+----------------------
+
+{
+  "intent": "show_savings_goals",
+  "assistant_message": string | null
+}
+
+18) show_iban
+-------------
+
+{
+  "intent": "show_iban",
+  "assistant_message": string | null
+}
+
+============================================================
+INFORMATIONAL & UNSUPPORTED INTENTS
+============================================================
+
+19) informational
+-----------------
+
+For general banking questions that do NOT directly trigger an action:
+
+{
+  "intent": "informational",
+  "assistant_message": string
+}
+
+20) unsupported
+---------------
+
+For anything clearly outside banking / personal finance / the banking app:
+
+{
+  "intent": "unsupported",
+  "assistant_message": string
+}
+
+============================================================
+OUTPUT REQUIREMENTS
+============================================================
+
+- You MUST output exactly one JSON object.
+- Do NOT include any explanatory text outside of the JSON.
+- The JSON MUST be syntactically valid (double quotes for keys/strings).
+`;
+
+// ============================================================
+// Groq client setup
+// ============================================================
+
+function getGroqClient(): Groq {
+  const apiKey = process.env.GROQ_API_KEY;
+  if (!apiKey) {
+    throw new Error(
+      "Please set GROQ_API_KEY in your environment or .env file."
+    );
+  }
+  return new Groq({ apiKey });
+}
+
+// ============================================================
+// Core function: single conversational step
+// ============================================================
+
+async function chatStep(
+  client: Groq,
+  history: Message[],
+  userMessage: string
+): Promise<AssistantResponse> {
+  history.push({ role: "user", content: userMessage });
+
+  const response = await client.chat.completions.create({
+    model: "llama-3.3-70b-versatile",
+    messages: history,
+    temperature: 0,
+    response_format: { type: "json_object" },
+  });
+
+  const content = response.choices[0]?.message?.content || "{}";
+  history.push({ role: "assistant", content });
+
+  try {
+    const parsed = JSON.parse(content) as AssistantResponse;
+    return parsed;
+  } catch (error) {
+    return {
+      intent: "unsupported",
+      assistant_message: "There was an internal parsing error. Please try again.",
+    };
+  }
+}
+
+// ============================================================
+// Backend Logic: Handle transactions with contact lookup
+// ============================================================
+
+async function handleTransferMoney(
+  result: any,
+  contactManager: ContactManager,
+  transactionTracker: TransactionTracker,
+  client: Groq,
+  history: Message[]
+): Promise<void> {
+  const { amount, currency, recipient, recipient_iban } = result;
+
+  // If recipient_iban is provided, use it directly
+  if (recipient_iban) {
+    console.log(`✅ Processing transfer: ${amount} ${currency} to IBAN ${recipient_iban}`);
+    
+    // Track this transaction
+    const count = transactionTracker.recordTransaction(recipient_iban);
+    
+    // Check if we should suggest adding to contacts
+    if (count === 10) {
+      console.log(`\n💡 You've made 10 transactions with ${recipient || recipient_iban}.`);
+      const suggestResult = await chatStep(
+        client,
+        history,
+        `The user has made 10 transactions with ${recipient || recipient_iban}. Ask them if they would like to add this person to their contacts, and if they want to set a custom alias.`
+      );
+      if (suggestResult.assistant_message) {
+        console.log(`\nAssistant: ${suggestResult.assistant_message}\n`);
+      }
+    }
+    return;
+  }
+
+  // Try to find contact by alias
+  if (recipient) {
+    const contact = contactManager.findByAlias(recipient);
+    
+    if (contact) {
+      console.log(`✅ Found contact: ${contact.firstName} ${contact.lastName} (${contact.alias})`);
+      console.log(`✅ Processing transfer: ${amount} ${currency} to ${contact.iban}`);
+      
+      // Track this transaction
+      const count = transactionTracker.recordTransaction(contact.iban);
+      return;
+    }
+
+    // No exact match found, try fuzzy matching
+    const allContacts = contactManager.getAllContacts();
+    if (allContacts.length > 0) {
+      console.log(`\n🔍 No exact alias match for "${recipient}". Checking for similar contacts...`);
+      
+      // Ask AI to match the alias
+      const contactList = allContacts
+        .map(c => `- ${c.alias} (${c.firstName} ${c.lastName})`)
+        .join("\n");
+      
+      const matchPrompt = `The user said "${recipient}" but no exact alias match was found. Here are the saved contacts:\n${contactList}\n\nDoes "${recipient}" match any of these aliases semantically (e.g., "mama" matches "mother", "dad" matches "father")? If yes, respond with confirm_alias_match intent and include the matched contact's name in assistant_message to confirm with the user. If no match, respond with missing_parameters for recipient_iban.`;
+      
+      const matchResult = await chatStep(client, history, matchPrompt);
+      
+      if (matchResult.intent === "confirm_alias_match") {
+        console.log(`\n${matchResult.assistant_message}\n`);
+        return;
+      }
+    }
+
+    // No match found at all
+    console.log(`❌ Recipient "${recipient}" not found in contacts.`);
+    console.log(`Please provide the recipient's IBAN or add them to your contacts first.`);
+  }
+}
+
+// ============================================================
+// CLI conversational loop
+// ============================================================
+
+async function main(): Promise<void> {
+  const client = getGroqClient();
+  const contactManager = new ContactManager();
+  const transactionTracker = new TransactionTracker();
+
+  const history: Message[] = [
+    { role: "system", content: SYSTEM_PROMPT },
+  ];
+
+  console.log("✅ Banking Assistant with Contact Management is ready.");
+  console.log("Type your banking requests/questions.");
+  console.log("Type 'done', 'exit' or 'quit' to end the conversation.\n");
+
+  const rl = readline.createInterface({
+    input: process.stdin,
+    output: process.stdout,
+  });
+
+  const askQuestion = (query: string): Promise<string> => {
+    return new Promise((resolve) => {
+      rl.question(query, resolve);
+    });
+  };
+
+  let running = true;
+
+  while (running) {
+    try {
+      const userMessage = (await askQuestion("You: ")).trim();
+
+      if (["done", "exit", "quit"].includes(userMessage.toLowerCase())) {
+        console.log("Assistant: Thank you! Conversation finished.");
+        running = false;
+        break;
+      }
+
+      if (!userMessage) continue;
+
+      const result = await chatStep(client, history, userMessage);
+
+      console.log("\n📋 JSON response:");
+      console.log(JSON.stringify(result, null, 2));
+
+      // Handle specific intents
+      if (result.intent === "transfer_money" || result.intent === "schedule_transfer") {
+        await handleTransferMoney(result, contactManager, transactionTracker, client, history);
+      } else if (result.intent === "add_contact") {
+        const contact = result as AddContactResponse;
+        if (contact.first_name && contact.last_name && contact.account_id && contact.iban) {
+          const alias = contact.alias || contact.first_name;
+          contactManager.addContact({
+            firstName: contact.first_name,
+            lastName: contact.last_name,
+            accountId: contact.account_id,
+            iban: contact.iban,
+            alias: alias,
+          });
+          console.log(`✅ Contact added: ${contact.first_name} ${contact.last_name} (alias: ${alias})`);
+        }
+      }
+
+      const assistantMessage = result.assistant_message;
+      if (assistantMessage) {
+        console.log(`\n💬 Assistant: ${assistantMessage}`);
+      }
+
+      console.log("\n" + "-".repeat(60) + "\n");
+    } catch (error) {
+      console.error("Error:", error);
+    }
+  }
+
+  rl.close();
+}
+
+main().catch((error) => {
+  console.error("Fatal error:", error);
+  process.exit(1);
+});
