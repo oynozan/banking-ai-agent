@@ -1,5 +1,5 @@
 # Ignore AI environment variables
-ai/.env
+.env
 
 # Ignore Node dependencies
-ai/node_modules/
+node_modules/
