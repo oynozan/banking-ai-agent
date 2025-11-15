@@ -47,7 +47,6 @@ export default function Wrapper({ children }: { children: React.ReactNode }) {
                 }
 
                 const data = await response.json();
-                console.log(data);
 
                 setUser(data.user);
                 setState("logged_in");

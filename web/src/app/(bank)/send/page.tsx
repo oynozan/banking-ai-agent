@@ -145,8 +145,8 @@ function InternalTransfer() {
             }
             return json as {
                 success: boolean;
-                from: { id: string; balance: number; currency: string };
-                to: { id: string; balance: number; currency: string };
+                from: { iban: string; balance: number; currency: string };
+                to: { iban: string; balance: number; currency: string };
             };
         },
         onSuccess: async () => {
@@ -235,7 +235,7 @@ function InternalTransfer() {
                             <SelectContent>
                                 <SelectGroup>
                                     <SelectLabel>Accounts</SelectLabel>
-                                    {isFetching && <Loader2 className="w-4 h-4 animate-spin" />}
+                                    {isFetching && <Loader2 className="m-2 w-4 h-4 animate-spin" />}
                                     {!isFetching &&
                                         fromOptions.map((acc) => (
                                             <SelectItem key={acc.iban} value={acc.iban}>
@@ -287,7 +287,7 @@ function InternalTransfer() {
                             <SelectContent>
                                 <SelectGroup>
                                     <SelectLabel>Accounts</SelectLabel>
-                                    {isFetching && <Loader2 className="w-4 h-4 animate-spin" />}
+                                    {isFetching && <Loader2 className="m-2 w-4 h-4 animate-spin" />}
                                     {!isFetching &&
                                         toOptions.map((acc) => (
                                             <SelectItem key={acc.iban} value={acc.iban}>
@@ -349,9 +349,275 @@ function InternalTransfer() {
 }
 
 function ExternalTransfer() {
+    type Account = {
+        iban: string;
+        balance?: number;
+        currency?: string;
+        type?: string;
+    };
+
+    const [recipientType, setRecipientType] = useState<"id" | "iban">("id");
+    const [recipientValue, setRecipientValue] = useState("");
+    const [recipientName, setRecipientName] = useState("");
+    const [fromAccountId, setFromAccountId] = useState<string | undefined>(undefined);
+    const [amount, setAmount] = useState("");
+    const [category, setCategory] = useState("");
+
+    const {
+        data,
+        refetch,
+        isFetching,
+    } = useQuery({
+        queryKey: ["accounts"],
+        enabled: false,
+        queryFn: async () => {
+            const accessToken =
+                typeof window !== "undefined" ? localStorage.getItem("accessToken") : null;
+            const headers: HeadersInit = accessToken
+                ? { Authorization: `Bearer ${accessToken}` }
+                : {};
+
+            const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/accounts`, { headers });
+            if (!res.ok) {
+                throw new Error("Failed to fetch accounts");
+            }
+            return res.json() as Promise<{ accounts?: Account[] }>;
+        },
+    });
+
+    const accounts: Account[] = Array.isArray(data?.accounts) ? data!.accounts! : [];
+    const selectedFrom = accounts.find((account) => account.iban === fromAccountId);
+
+    const categories = [
+        "Shopping",
+        "Bill Payment",
+        "Rent",
+        "Utilities",
+        "Donation",
+        "Other",
+    ];
+
+    const { mutateAsync: transferExternal, isPending } = useMutation({
+        mutationKey: ["transfer-external"],
+        mutationFn: async (payload: {
+            fromAccountId: string;
+            recipientType: "id" | "iban";
+            recipientValue: string;
+            recipientName: string;
+            amount: number;
+            category: string;
+        }) => {
+            const accessToken =
+                typeof window !== "undefined" ? localStorage.getItem("accessToken") : null;
+            const headers: HeadersInit = {
+                "Content-Type": "application/json",
+                ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
+            };
+
+            const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/transfer/external`, {
+                method: "POST",
+                headers,
+                body: JSON.stringify(payload),
+            });
+            const json = await res.json().catch(() => ({}));
+            if (!res.ok) {
+                throw new Error(json?.error || "Transfer failed");
+            }
+            return json;
+        },
+        onSuccess: async () => {
+            toast.success("Transfer completed successfully.");
+            setRecipientName("");
+            setRecipientValue("");
+            setAmount("");
+            setCategory("");
+            setFromAccountId(undefined);
+            await refetch();
+        },
+        onError: (error) => {
+            const message =
+                error instanceof Error ? error.message : "An unexpected error occurred";
+            toast.error(message);
+        },
+    });
+
+    const parsedAmount = Number.parseFloat(amount);
+    const insufficientFunds =
+        typeof selectedFrom?.balance === "number" && Number.isFinite(parsedAmount)
+            ? parsedAmount > selectedFrom.balance
+            : false;
+
+    const canSubmit =
+        recipientValue.trim().length > 0 &&
+        recipientName.trim().length > 0 &&
+        !!fromAccountId &&
+        Number.isFinite(parsedAmount) &&
+        parsedAmount > 0 &&
+        category.trim().length > 0 &&
+        !insufficientFunds;
+
+    const handleTransfer = async () => {
+        if (!canSubmit || !fromAccountId) return;
+
+        try {
+            await transferExternal({
+                fromAccountId,
+                recipientType,
+                recipientValue: recipientValue.trim(),
+                recipientName: recipientName.trim(),
+                amount: parsedAmount,
+                category,
+            });
+        } catch {
+            /* errors handled via onError */
+        }
+    };
+
     return (
         <div>
-            <h2>Someone Else</h2>
+            <h2>Send money to someone else</h2>
+            <div className="bg-card rounded-sm border border-gold/30 transition-all shadow-xl p-8 flex flex-col gap-6 mt-2">
+                <div className="grid gap-4 md:grid-cols-2">
+                    <section className="flex flex-col gap-2">
+                        <p className="text-white">Recipient identifier type</p>
+                        <Select
+                            value={recipientType}
+                            onValueChange={(value: "id" | "iban") => setRecipientType(value)}
+                        >
+                            <SelectTrigger className="w-full">
+                                <SelectValue placeholder="Select identifier type" />
+                            </SelectTrigger>
+                            <SelectContent>
+                                <SelectGroup>
+                                    <SelectLabel>Identifier</SelectLabel>
+                                    <SelectItem value="id">Account ID</SelectItem>
+                                    <SelectItem value="iban">IBAN</SelectItem>
+                                </SelectGroup>
+                            </SelectContent>
+                        </Select>
+                    </section>
+                    <section className="flex flex-col gap-2">
+                        <p className="text-white">Recipient account</p>
+                        <Input
+                            placeholder={
+                                recipientType === "id"
+                                    ? "Enter recipient account ID"
+                                    : "Enter recipient IBAN"
+                            }
+                            value={recipientValue}
+                            onChange={(e) => setRecipientValue(e.target.value)}
+                        />
+                    </section>
+                </div>
+
+                <section className="flex flex-col gap-2">
+                    <p className="text-white">Recipient name</p>
+                    <Input
+                        placeholder="Enter recipient full name"
+                        value={recipientName}
+                        onChange={(e) => setRecipientName(e.target.value)}
+                    />
+                </section>
+
+                <section className="flex flex-col gap-2">
+                    <p className="text-white">From account</p>
+                    <Select
+                        value={fromAccountId}
+                        onValueChange={setFromAccountId}
+                        onOpenChange={(open) => {
+                            if (open) {
+                                void refetch();
+                            }
+                        }}
+                    >
+                        <SelectTrigger className="w-full">
+                            <SelectValue placeholder="Select one of your accounts" />
+                        </SelectTrigger>
+                        <SelectContent>
+                            <SelectGroup>
+                                <SelectLabel>Your accounts</SelectLabel>
+                                {isFetching && <Loader2 className="m-2 w-4 h-4 animate-spin" />}
+                                {!isFetching &&
+                                    accounts.map((acc) => (
+                                        <SelectItem key={acc.iban} value={acc.iban}>
+                                            {acc.iban || `Account (${acc.type ?? "unknown"})`}
+                                            <span className="text-gray-400">
+                                                {typeof acc.balance === "number"
+                                                    ? ` - ${acc.balance} ${acc.currency ?? ""}`
+                                                    : ""}
+                                            </span>
+                                        </SelectItem>
+                                    ))}
+                            </SelectGroup>
+                        </SelectContent>
+                    </Select>
+                    {selectedFrom && (
+                        <p className="text-sm text-gray-400">
+                            Balance:{" "}
+                            <span className="text-gold">
+                                {selectedFrom.balance ?? 0} {selectedFrom.currency ?? ""}
+                            </span>
+                        </p>
+                    )}
+                </section>
+
+                <Separator />
+
+                <section>
+                    <h3 className="text-white">Amount</h3>
+                    <div className="flex items-center justify-between mb-2">
+                        <p className="text-gray-400">Enter the amount you want to send</p>
+                        <p className="text-gray-400">
+                            Available balance:{" "}
+                            <span className="text-gold">
+                                {selectedFrom?.balance ?? 0} {selectedFrom?.currency ?? ""}
+                            </span>
+                        </p>
+                    </div>
+                    <Input
+                        type="number"
+                        min="0"
+                        step="any"
+                        placeholder="Enter the amount"
+                        className="w-full"
+                        value={amount}
+                        onChange={(e) => setAmount(e.target.value)}
+                    />
+                    {insufficientFunds && (
+                        <p className="text-sm text-red-400 mt-2">Insufficient balance.</p>
+                    )}
+                </section>
+
+                <Separator />
+
+                <section className="flex flex-col gap-2">
+                    <p className="text-white">Payment category</p>
+                    <Select value={category} onValueChange={(value) => setCategory(value)}>
+                        <SelectTrigger className="w-full">
+                            <SelectValue placeholder="Select category" />
+                        </SelectTrigger>
+                        <SelectContent>
+                            <SelectGroup>
+                                <SelectLabel>Categories</SelectLabel>
+                                {categories.map((cat) => (
+                                    <SelectItem key={cat} value={cat}>
+                                        {cat}
+                                    </SelectItem>
+                                ))}
+                            </SelectGroup>
+                        </SelectContent>
+                    </Select>
+                </section>
+
+                <Separator />
+
+                <section className="w-full flex items-end justify-end gap-2">
+                    <Button disabled={!canSubmit || isPending} onClick={handleTransfer}>
+                        {isPending && <Loader2 className="w-4 h-4 animate-spin" />}
+                        Send Money
+                    </Button>
+                </section>
+            </div>
         </div>
     );
 }

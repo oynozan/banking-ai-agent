@@ -19,14 +19,14 @@ export default function TransactionHistoryBalance() {
                     <h2 className="text-gray-300">Current Balance</h2>
                     <button
                         onClick={() => setShowBalance(!showBalance)}
-                        className="text-gray-400 hover:text-[#FFD700] transition-colors"
+                        className="text-gray-400 hover:text-gold transition-colors"
                         aria-label={showBalance ? "Hide balance" : "Show balance"}
                     >
                         {showBalance ? <Eye size={20} /> : <EyeOff size={20} />}
                     </button>
                 </div>
                 <div className="flex items-center gap-3">
-                    <h2 className="text-5xl text-[#FFD700]">
+                    <h2 className="text-5xl text-gold">
                         {showBalance
                             ? `$${user.balance.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
                             : "••••••"}

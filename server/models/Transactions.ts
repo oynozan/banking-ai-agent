@@ -15,7 +15,7 @@ export interface ITransaction extends Document {
     };
     amount: number;
     date: Date;
-    type: "credit" | "debit";
+    type: "credit" | "debit" | "internal_transfer" | "external_transfer";
     category: string;
 }
 
@@ -32,7 +32,7 @@ const TransactionSchema = new Schema<ITransaction>(
         },
         amount: { type: Number, required: true },
         date: { type: Date, required: true },
-        type: { type: String, enum: ["credit", "debit"], required: true },
+        type: { type: String, enum: ["credit", "debit", "internal_transfer", "external_transfer"], required: true },
         category: { type: String, required: true },
     },
     { versionKey: false },
