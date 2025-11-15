@@ -485,7 +485,7 @@ async function handleTransferMoney(
   transactionTracker: TransactionTracker,
   client: Groq,
   history: Message[]
-): Promise<void> {
+): Promise<AssistantResponse | null> {
   const { amount, currency, recipient, recipient_iban } = result;
 
   // If recipient_iban is provided, use it directly
@@ -497,17 +497,14 @@ async function handleTransferMoney(
     
     // Check if we should suggest adding to contacts
     if (count === 10) {
-      console.log(`\n💡 You've made 10 transactions with ${recipient || recipient_iban}.`);
       const suggestResult = await chatStep(
         client,
         history,
         `The user has made 10 transactions with ${recipient || recipient_iban}. Ask them if they would like to add this person to their contacts, and if they want to set a custom alias.`
       );
-      if (suggestResult.assistant_message) {
-        console.log(`\nAssistant: ${suggestResult.assistant_message}\n`);
-      }
+      return suggestResult;
     }
-    return;
+    return null;
   }
 
   // Try to find contact by alias
@@ -520,33 +517,43 @@ async function handleTransferMoney(
       
       // Track this transaction
       const count = transactionTracker.recordTransaction(contact.iban);
-      return;
+      
+      // Check if we should suggest adding to contacts (shouldn't happen for existing contacts, but just in case)
+      if (count === 10) {
+        const suggestResult = await chatStep(
+          client,
+          history,
+          `The user has made 10 transactions with ${contact.firstName} ${contact.lastName}. This is notable.`
+        );
+        return suggestResult;
+      }
+      return null;
     }
 
     // No exact match found, try fuzzy matching
     const allContacts = contactManager.getAllContacts();
     if (allContacts.length > 0) {
-      console.log(`\n🔍 No exact alias match for "${recipient}". Checking for similar contacts...`);
-      
       // Ask AI to match the alias
       const contactList = allContacts
         .map(c => `- ${c.alias} (${c.firstName} ${c.lastName})`)
         .join("\n");
       
-      const matchPrompt = `The user said "${recipient}" but no exact alias match was found. Here are the saved contacts:\n${contactList}\n\nDoes "${recipient}" match any of these aliases semantically (e.g., "mama" matches "mother", "dad" matches "father")? If yes, respond with confirm_alias_match intent and include the matched contact's name in assistant_message to confirm with the user. If no match, respond with missing_parameters for recipient_iban.`;
+      const matchPrompt = `The user said "${recipient}" but no exact alias match was found. Here are the saved contacts:\n${contactList}\n\nDoes "${recipient}" match any of these aliases semantically (e.g., "mama" matches "mother", "dad" matches "father")? If yes, respond with confirm_alias_match intent and include the matched contact's name in assistant_message to confirm with the user. If no match, ask the user to provide the recipient's IBAN or add them to contacts first.`;
       
       const matchResult = await chatStep(client, history, matchPrompt);
-      
-      if (matchResult.intent === "confirm_alias_match") {
-        console.log(`\n${matchResult.assistant_message}\n`);
-        return;
-      }
+      return matchResult;
     }
 
-    // No match found at all
-    console.log(`❌ Recipient "${recipient}" not found in contacts.`);
-    console.log(`Please provide the recipient's IBAN or add them to your contacts first.`);
+    // No contacts at all - ask for IBAN
+    const noContactResult = await chatStep(
+      client,
+      history,
+      `The recipient "${recipient}" was not found in the contacts list, and there are no saved contacts. Ask the user to provide the recipient's IBAN number to complete the transfer, or offer to add this person to their contacts.`
+    );
+    return noContactResult;
   }
+
+  return null;
 }
 
 // ============================================================
@@ -597,8 +604,10 @@ async function main(): Promise<void> {
       console.log(JSON.stringify(result, null, 2));
 
       // Handle specific intents
+      let followUpResult: AssistantResponse | null = null;
+      
       if (result.intent === "transfer_money" || result.intent === "schedule_transfer") {
-        await handleTransferMoney(result, contactManager, transactionTracker, client, history);
+        followUpResult = await handleTransferMoney(result, contactManager, transactionTracker, client, history);
       } else if (result.intent === "add_contact") {
         const contact = result as AddContactResponse;
         if (contact.first_name && contact.last_name && contact.account_id && contact.iban) {
@@ -614,9 +623,15 @@ async function main(): Promise<void> {
         }
       }
 
+      // Show the primary assistant message
       const assistantMessage = result.assistant_message;
       if (assistantMessage) {
         console.log(`\n💬 Assistant: ${assistantMessage}`);
+      }
+
+      // Show follow-up message if there was one from transaction handling
+      if (followUpResult && followUpResult.assistant_message) {
+        console.log(`\n💬 Assistant: ${followUpResult.assistant_message}`);
       }
 
       console.log("\n" + "-".repeat(60) + "\n");
