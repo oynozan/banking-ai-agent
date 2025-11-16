@@ -14,11 +14,16 @@ export function mapApiToFrontend(apiTransactions: ITransaction[]): Transaction[]
         const type = tx.isSent ? "debit" : "credit";
 
         const merchant = tx.isSent ? tx.participants.receiverName : tx.participants.senderName;
+        const ibanCombo = ((tx.participants?.sender || "") + (tx.participants?.receiver || ""));
 
-        const date = new Date(tx.date).toLocaleDateString("en-US", {
-            month: "short",
-            day: "numeric",
-        });
+        let currency = tx.currency ?? "PLN";
+        if (!tx.currency) {
+            if (ibanCombo.includes("PL")) currency = "PLN";
+            if (ibanCombo.includes("DE")) currency = "EUR";
+            if (ibanCombo.includes("US")) currency = "USD";
+        }
+
+        const date = new Date(tx.date).toISOString();
 
         return {
             id: tx._id,
@@ -27,6 +32,7 @@ export function mapApiToFrontend(apiTransactions: ITransaction[]): Transaction[]
             category: tx.category,
             amount: tx.amount,
             type: type,
+            currency,
         };
     });
 }

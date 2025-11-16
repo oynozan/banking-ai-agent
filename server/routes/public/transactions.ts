@@ -23,8 +23,11 @@ router.get("/", userToken, authRequired, async (req, res) => {
         const skip = (page - 1) * limit;
 
         // Find IBANs of user's accounts
-        const userAccounts = await Accounts.find({ "user.id": req.user.id }).select("iban");
+        const userAccounts = await Accounts.find({ "user.id": req.user.id })
+            .select("iban currency")
+            .lean();
         const ibans = userAccounts.map(acc => acc.iban);
+        const accountCurrencyMap = new Map(userAccounts.map(acc => [acc.iban, acc.currency ?? "PLN"]));
 
         if (ibans.length === 0) {
             return res.status(200).json({
@@ -49,13 +52,27 @@ router.get("/", userToken, authRequired, async (req, res) => {
             Transactions.find(filter)
                 .sort({ date: -1 })
                 .skip(skip)
-                .limit(limit),
+                .limit(limit)
+                .lean(),
         ]);
 
         const hasMore = skip + transactions.length < total;
+        const enrichedTransactions = transactions.map(tx => {
+            if (tx.currency) {
+                return tx;
+            }
+
+            const accountIban = tx.isSent ? tx.participants.sender : tx.participants.receiver;
+            const fallbackCurrency = accountCurrencyMap.get(accountIban) ?? "PLN";
+
+            return {
+                ...tx,
+                currency: fallbackCurrency,
+            };
+        });
 
         return res.status(200).json({
-            transactions,
+            transactions: enrichedTransactions,
             page,
             limit,
             total,

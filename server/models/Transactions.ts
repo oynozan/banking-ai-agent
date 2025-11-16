@@ -14,6 +14,7 @@ export interface ITransaction extends Document {
         receiverType?: AccountTypes;
     };
     amount: number;
+    currency: string;
     date: Date;
     type: "credit" | "debit" | "internal_transfer" | "external_transfer";
     category: string;
@@ -31,6 +32,7 @@ const TransactionSchema = new Schema<ITransaction>(
             receiverType: { type: String, enum: ["id", "iban"] },
         },
         amount: { type: Number, required: true },
+        currency: { type: String, required: true, default: "PLN" },
         date: { type: Date, required: true },
         type: { type: String, enum: ["credit", "debit", "internal_transfer", "external_transfer"], required: true },
         category: { type: String, required: true },

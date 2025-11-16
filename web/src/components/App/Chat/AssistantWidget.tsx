@@ -363,7 +363,7 @@ export function AssistantWidget() {
                 {/* Chat Body */}
                 <div
                     ref={chatBodyRef}
-                    className={`chat-body flex-1 p-4 overflow-y-auto space-y-4 bg-zinc-50`}
+                    className={`chat-body flex-1 p-4 overflow-y-auto space-y-4 bg-[#f9ecd8]`}
                 >
                     {!messages.length && (
                         <div className="flex justify-center items-center h-full">
