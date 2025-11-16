@@ -1,7 +1,7 @@
 "use client";
 
 import clsx from "clsx";
-import { SendHorizonal } from "lucide-react";
+import { SendHorizonal, Mic, MicOff } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
 import Action from "./Action";
@@ -17,14 +17,89 @@ type ChatItem =
     | { kind: "text"; isUser: boolean; text: string }
     | { kind: "action"; id: string; text: string; status: "pending" | "accepted" | "cancelled" };
 
+// Extend window to include p5 types
+declare global {
+    interface Window {
+        p5: any;
+    }
+}
+
 export function AssistantWidget() {
     const { isOpen, toggle, isFullScreen, toggleFullScreen } = useAssistantStore();
 
     const inputRef = useRef<HTMLInputElement | null>(null);
     const chatBodyRef = useRef<HTMLDivElement | null>(null);
+    const speechRecRef = useRef<any>(null);
 
     const [messages, setMessages] = useState<ChatItem[]>([]);
     const [isSending, setIsSending] = useState<boolean>(false);
+    const [isListening, setIsListening] = useState<boolean>(false);
+    const [speechReady, setSpeechReady] = useState<boolean>(false);
+
+    // Initialize speech recognition
+    useEffect(() => {
+        // Wait for p5.speech to load
+        const checkP5Speech = setInterval(() => {
+            if (typeof window !== 'undefined' && window.p5 && (window.p5 as any).SpeechRec) {
+                clearInterval(checkP5Speech);
+                initializeSpeech();
+            }
+        }, 100);
+
+        const initializeSpeech = () => {
+            try {
+                const gotSpeech = () => {
+                    if (speechRecRef.current && speechRecRef.current.resultValue) {
+                        const said = speechRecRef.current.resultString;
+                        if (said && inputRef.current) {
+                            inputRef.current.value = said;
+                        }
+                    }
+                };
+
+                // Create new p5.SpeechRec instance
+                speechRecRef.current = new (window.p5 as any).SpeechRec('en-US', gotSpeech);
+                setSpeechReady(true);
+                console.log('Speech recognition initialized');
+            } catch (error) {
+                console.error('Error initializing speech recognition:', error);
+            }
+        };
+
+        // Cleanup
+        return () => {
+            clearInterval(checkP5Speech);
+            if (speechRecRef.current) {
+                try {
+                    speechRecRef.current.stop();
+                } catch (e) {
+                    console.error('Error stopping speech recognition:', e);
+                }
+            }
+        };
+    }, []);
+
+    // Toggle speech recognition
+    const toggleSpeechRecognition = () => {
+        if (!speechRecRef.current) return;
+
+        try {
+            if (isListening) {
+                speechRecRef.current.stop();
+                setIsListening(false);
+                console.log('Stopped listening');
+            } else {
+                const continuous = true;
+                const interimResults = false;
+                speechRecRef.current.start(continuous, interimResults);
+                setIsListening(true);
+                console.log('Started listening');
+            }
+        } catch (error) {
+            console.error('Error toggling speech recognition:', error);
+            setIsListening(false);
+        }
+    };
 
     useEffect(() => {
         const handleStreamStart = () => {
@@ -96,7 +171,7 @@ export function AssistantWidget() {
                 ...prev,
                 { kind: "action", id, text: assistantMessage, status: "pending" },
             ]);
-            setIsSending(false); // allow typing while deciding
+            setIsSending(false);
         };
 
         const handleActionCancelled = ({ id }: { id: string }) => {
@@ -105,7 +180,7 @@ export function AssistantWidget() {
                     m.kind === "action" && m.id === id ? { ...m, status: "cancelled" } : m,
                 ),
             );
-            setIsSending(false); // re-enable input
+            setIsSending(false);
         };
 
         socket.on("chat:stream:start", handleStreamStart);
@@ -133,7 +208,6 @@ export function AssistantWidget() {
         }
     }, [messages]);
 
-    // When sending completes (input becomes enabled), focus the input
     useEffect(() => {
         if (!isSending && inputRef.current) {
             inputRef.current.focus();
@@ -142,7 +216,7 @@ export function AssistantWidget() {
 
     const handleSubmit = (e: React.FormEvent<HTMLFormElement>) => {
         e.preventDefault();
-        if (isSending) return; // prevent duplicate submissions while streaming
+        if (isSending) return;
 
         const formData = new FormData(e.target as HTMLFormElement);
         const message = formData.get("message") as string;
@@ -154,6 +228,16 @@ export function AssistantWidget() {
         socket.emit("chat:message", text);
 
         (e.target as HTMLFormElement).reset();
+        
+        // Stop listening after sending
+        if (isListening && speechRecRef.current) {
+            try {
+                speechRecRef.current.stop();
+                setIsListening(false);
+            } catch (e) {
+                console.error('Error stopping speech:', e);
+            }
+        }
     };
 
     return (
@@ -214,10 +298,34 @@ export function AssistantWidget() {
                             autoFocus={isFullScreen}
                             type="text"
                             name="message"
-                            placeholder="Type your message..."
-                            className="flex-1 p-4 pr-12 bg-card rounded-xl rounded-t-none text-white placeholder:text-gray-500 outline-none!"
+                            placeholder="Type your message or use voice..."
+                            className="flex-1 p-4 pr-24 bg-card rounded-xl rounded-t-none text-white placeholder:text-gray-500 outline-none!"
                             disabled={isSending}
                         />
+                        
+                        {/* Microphone Button */}
+                        {speechReady && (
+                            <button
+                                type="button"
+                                onClick={toggleSpeechRecognition}
+                                className={clsx(
+                                    "absolute right-14 top-1/2 -translate-y-1/2 p-2 rounded-lg transition-colors",
+                                    isListening 
+                                        ? "bg-red-500 text-white animate-pulse" 
+                                        : "bg-transparent text-gray-400 hover:text-gold"
+                                )}
+                                disabled={isSending}
+                                aria-label={isListening ? "Stop voice input" : "Start voice input"}
+                            >
+                                {isListening ? (
+                                    <MicOff className="w-5 h-5" />
+                                ) : (
+                                    <Mic className="w-5 h-5" />
+                                )}
+                            </button>
+                        )}
+                        
+                        {/* Send Button */}
                         <button
                             type="submit"
                             className="absolute right-2 top-1/2 -translate-y-1/2 p-2 rounded-lg bg-transparent text-gold"
@@ -231,6 +339,22 @@ export function AssistantWidget() {
             </div>
 
             <WidgetTrigger toggle={toggle} isOpen={isOpen} />
+        </div>
+    );
+}
+
+function Message({ message, isUser }: { message: string; isUser: boolean }) {
+    return (
+        <div className={clsx("flex", isUser ? "justify-end" : "justify-start")}>
+            <div
+                className={
+                    `max-w-4/5 border p-4 rounded-[12px] wrap-break-word ${isUser
+                        ? "bg-[#f8cb00] border-[#f8c200] text-black rounded-tr-none"
+                        : "bg-[#13181a] border-[#1c1c1c] text-white rounded-tl-none"}`
+                }
+            >
+                <p>{message}</p>
+            </div>
         </div>
     );
 }
