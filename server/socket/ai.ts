@@ -12,6 +12,7 @@ export class AgentListener extends SocketListener {
     private pendingActions: Map<string, any>;
     private currentActionMemory: { intent: string | null; params: Record<string, unknown> };
     private cachedContacts: Array<{ alias: string; name?: string; iban: string }> | null;
+    private proposedContactKeys: Set<string>;
 
     constructor(io: any, socket: any) {
         super(io, socket);
@@ -22,6 +23,7 @@ export class AgentListener extends SocketListener {
         this.pendingActions = new Map();
         this.currentActionMemory = { intent: null, params: {} };
         this.cachedContacts = null;
+        this.proposedContactKeys = new Set();
     }
 
     listen() {
@@ -59,6 +61,7 @@ export class AgentListener extends SocketListener {
             this.pendingActions.clear();
             this.resetActionMemory();
             this.cachedContacts = null;
+            this.proposedContactKeys.clear();
         });
 
         this.socket.on("chat:message", async (data: string) => {
@@ -104,6 +107,9 @@ export class AgentListener extends SocketListener {
                         // Merge known non-null parameters into memory for this intent
                         this.mergeActionMemory(intent, parsed);
 
+                        // Propose saving a contact as soon as alias+IBAN are present, even if transfer is incomplete
+                        await this.maybeProposeSaveContact(parsed, contacts);
+
                         if (
                             missing.length > 0 ||
                             parsed?.intent === "informational" ||
@@ -129,7 +135,7 @@ export class AgentListener extends SocketListener {
                             }
 
                             // If this is an external transfer with alias+iban not yet saved, propose adding contact
-                            await this.maybeProposeSaveContact(parsed, contacts);
+                            // (already attempted above; keep here harmlessly or remove)
                         }
                     } catch {
                         await this.streamAssistant();
@@ -154,6 +160,7 @@ export class AgentListener extends SocketListener {
 
     private async getContacts(userId?: string) {
         if (!userId) return [];
+        if (this.cachedContacts) return this.cachedContacts;
         const list = await ContactLib.listContacts(userId);
         this.cachedContacts = list;
         return list;
@@ -246,22 +253,29 @@ export class AgentListener extends SocketListener {
 
     private async maybeProposeSaveContact(action: any, contacts: Array<{ alias: string; name?: string; iban: string }>) {
         try {
+            const userId = this.socket.user?.id as string | undefined;
             if (
                 action?.intent === "transfer_money" &&
                 action?.transfer_type === "external" &&
                 action?.recipient_type === "iban" &&
                 typeof action?.recipient_value === "string" &&
                 action?.recipient_value &&
-                typeof action?.recipient_name === "string" &&
-                action?.recipient_name
+                (typeof action?.recipient_name === "string" ? action?.recipient_name : this.currentActionMemory.params?.["recipient_name"])
             ) {
-                const aliasCandidate = String(action.recipient_name).trim();
+                const aliasCandidate = String(
+                    (action.recipient_name as string) || (this.currentActionMemory.params?.["recipient_name"] as string) || "",
+                ).trim();
+                if (!aliasCandidate) return;
                 const exists = (contacts || []).some(
                     c =>
                         c.alias.toLowerCase().trim() === aliasCandidate.toLowerCase() ||
                         c.iban.trim() === String(action.recipient_value).trim(),
                 );
                 if (!exists) {
+                    const key = `${userId || "anon"}|${aliasCandidate.toLowerCase()}|${String(action.recipient_value).trim()}`;
+                    if (this.proposedContactKeys.has(key)) return;
+                    this.proposedContactKeys.add(key);
+
                     const saveId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
                     const addAction = {
                         intent: "add_contact",
