@@ -71,21 +71,29 @@ export class AgentListener extends SocketListener {
                 const userId = this.socket.user?.id as string | undefined;
                 const contacts = await this.getContacts(userId);
 
-                // ROUTER
-                const route = await this.ai.route(
-                    this.history,
-                    this.currentActionMemory.params,
-                    contacts
-                );
+                // if action already started → skip router
+                let intent = this.currentActionMemory.intent;
 
-                console.log("[ROUTER]:", route);
+                if (!intent) {
+                    const route = await this.ai.route(
+                        this.history,
+                        this.currentActionMemory.params,
+                        contacts
+                    );
 
-                if (route.mode === "action") {
-                    await this.handleActionFlow(route.intent, contacts);
-                } else {
-                    await this.streamAssistant();
+                    console.log("[ROUTER]:", route);
+
+                    if (route.mode === "action" && route.intent) {
+                        this.resetActionMemory();
+                        this.currentActionMemory.intent = route.intent;
+                        intent = route.intent;
+                    } else {
+                        await this.streamAssistant();
+                        return;
+                    }
                 }
 
+                await this.handleActionFlow(intent, contacts);
             } catch (e) {
                 console.error(e);
             } finally {
@@ -122,16 +130,16 @@ export class AgentListener extends SocketListener {
 
         const missing = parsed.missing_parameters || [];
 
-        // merge params into memory
+        // merge params
         this.mergeActionMemory(intent, parsed);
 
-        // ★ ALWAYS SHOW "from_account" suggestions first
+        // show FROM account selector
         if (parsed.intent === "transfer_money" && missing.includes("from_account")) {
             await this.sendAccountSelection("from_account");
             return;
         }
 
-        // ★ After selecting source account, show "to_account" suggestions for internal
+        // show TO account selector (internal)
         if (
             parsed.intent === "transfer_money" &&
             parsed.transfer_type === "internal" &&
@@ -141,15 +149,26 @@ export class AgentListener extends SocketListener {
             return;
         }
 
-        // missing other fields → follow-up
+        // ============================================================
+        // FIXED: FOLLOW-UP MESSAGES NOW SHOW
+        // ============================================================
         if (missing.length > 0) {
-            await this.askForMissingParameters(missing);
+            const msg =
+                parsed.assistant_message ||
+                `Please provide: ${missing.join(", ")}`;
+
+            console.log("EMIT → chat:assistant:", msg);
+
+            // send to UI
+            this.socket.emit("chat:assistant", { content: msg });
+
+            // keep memory history consistent
+            this.pushAssistantMessage(msg);
             return;
         }
 
-        // ALL parameters are collected → confirm action
+        // CONFIRMATION
         const id = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-
         this.pendingActions.set(id, parsed);
 
         this.socket.emit("chat:action:request", {
@@ -172,7 +191,6 @@ export class AgentListener extends SocketListener {
         const userId = this.socket.user?.id;
         if (!userId) return;
 
-        // Get accounts list
         const result = await this.mcp.execute(
             "show_accounts",
             { intent: "show_accounts" },
@@ -187,11 +205,10 @@ export class AgentListener extends SocketListener {
 
         if (!result) return;
 
-        // 1️⃣ STREAM ASSISTANT MESSAGE FIRST
-        // Generate a default message if not provided
-        const assistantMessage = result.assistantMessage || 
-            (field === "from_account" 
-                ? "Please select the account you want to transfer from:" 
+        const assistantMessage =
+            result.assistantMessage ||
+            (field === "from_account"
+                ? "Please select the account you want to transfer from:"
                 : "Please select the account you want to transfer to:");
 
         this.pushAssistantMessage(assistantMessage);
@@ -203,25 +220,10 @@ export class AgentListener extends SocketListener {
 
         this.socket.emit("chat:stream:end", { ok: true });
 
-        // 2️⃣ THEN SEND SUGGESTION BUTTONS
         this.socket.emit(result.event, {
             ...result.payload,
             field,
         });
-    }
-
-    // ============================================================
-    // FOLLOW UPS
-    // ============================================================
-
-    private async askForMissingParameters(fields: string[]) {
-        const instruction = `Ask ONLY for: ${fields.join(", ")}`;
-        const steer: ChatMessage[] = [
-            ...this.history,
-            { role: "user", content: instruction },
-        ].slice(-this.maxHistory);
-
-        await this.streamAssistant(steer);
     }
 
     // ============================================================

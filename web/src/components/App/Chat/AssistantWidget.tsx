@@ -30,38 +30,47 @@ export function AssistantWidget() {
     const chatBodyRef = useRef<HTMLDivElement | null>(null);
     const speechRecRef = useRef<any>(null);
     const audioRef = useRef<HTMLAudioElement | null>(null);
-    const lastMessageIndexRef = useRef<number>(-1);
-    const pendingAutoPlayRef = useRef<number | null>(null);
+
     const pendingSuggestionsRef = useRef<Array<{ field: string; options: Array<{ label: string; value: string }> }> | null>(null);
+
     const isSendingRef = useRef<boolean>(false);
+    const playMessageRef = useRef<((text: string, index: number) => Promise<void>) | null>(null);
 
     const [messages, setMessages] = useState<ChatItem[]>([]);
     const [isSending, setIsSending] = useState<boolean>(false);
     const [isListening, setIsListening] = useState<boolean>(false);
     const [speechReady, setSpeechReady] = useState<boolean>(false);
-    const [playingMessageIndex, setPlayingMessageIndex] = useState<number | null>(null);
-    const [autoPlayEnabled, setAutoPlayEnabled] = useState<boolean>(false);
 
-    // Persist autoPlayEnabled in localStorage
+    const [playingMessageIndex, setPlayingMessageIndex] = useState<number | null>(null);
+    const playingMessageIndexRef = useRef<number | null>(null);
+
+    const [autoPlayEnabled, setAutoPlayEnabled] = useState<boolean>(false);
+    const autoPlayEnabledRef = useRef<boolean>(false);
+
+    // LOAD AUTOPLAY SETTING
     useEffect(() => {
         try {
             const stored = localStorage.getItem("chat:autoPlayEnabled");
             if (stored !== null) {
-                setAutoPlayEnabled(stored === "1" || stored === "true");
+                const value = stored === "1" || stored === "true";
+                setAutoPlayEnabled(value);
+                autoPlayEnabledRef.current = value;
             }
-        } catch {
-            /* ignore storage errors */
-        }
+        } catch {}
     }, []);
+
     useEffect(() => {
+        autoPlayEnabledRef.current = autoPlayEnabled;
         try {
             localStorage.setItem("chat:autoPlayEnabled", autoPlayEnabled ? "1" : "0");
-        } catch {
-            /* ignore storage errors */
-        }
+        } catch {}
     }, [autoPlayEnabled]);
 
-    // Initialize audio element
+    useEffect(() => {
+        playingMessageIndexRef.current = playingMessageIndex;
+    }, [playingMessageIndex]);
+
+    // INIT AUDIO
     useEffect(() => {
         audioRef.current = new Audio();
         if (audioRef.current) {
@@ -136,6 +145,10 @@ export function AssistantWidget() {
         }
     };
 
+    useEffect(() => {
+        playMessageRef.current = playMessage;
+    }, [playMessage]);
+
     const stopMessage = () => {
         if (audioRef.current) {
             audioRef.current.pause();
@@ -158,10 +171,7 @@ export function AssistantWidget() {
                 const last = next[next.length - 1];
 
                 if (last?.kind === "text" && !last.isUser) {
-                    next[next.length - 1] = {
-                        ...last,
-                        text: last.text + token,
-                    };
+                    next[next.length - 1] = { ...last, text: last.text + token };
                 }
 
                 return next;
@@ -171,66 +181,46 @@ export function AssistantWidget() {
         const handleStreamEnd = () => {
             setIsSending(false);
             isSendingRef.current = false;
-            
-            // Apply any pending suggestions after stream ends
-            // Use a small delay to ensure React has processed all stream updates
-            if (pendingSuggestionsRef.current) {
-                const suggestions = [...pendingSuggestionsRef.current]; // Copy the array
-                
-                setTimeout(() => {
-                    // Check if still pending (not applied by handleAccounts)
-                    if (!pendingSuggestionsRef.current) return;
-                    
-                    // Verify it's the same suggestions we captured
-                    const currentPending = pendingSuggestionsRef.current;
-                    if (currentPending.length !== suggestions.length || 
-                        currentPending[0]?.field !== suggestions[0]?.field) {
-                        return; // Different suggestions, let handleAccounts handle it
-                    }
-                    
-                    pendingSuggestionsRef.current = null;
-                    
-                    setMessages(prev => {
-                        // Remove any existing suggestions for the same fields to prevent duplicates
-                        const filtered = prev.filter(m => 
-                            !(m.kind === "suggestions" && suggestions.some(s => s.field === m.field))
-                        );
 
-                        // Find the last assistant text message with content
-                        let idx = -1;
-                        for (let i = filtered.length - 1; i >= 0; i--) {
-                            const msg = filtered[i];
+            // Auto-play the last assistant message if enabled and nothing is playing
+            if (autoPlayEnabledRef.current && !playingMessageIndexRef.current && playMessageRef.current) {
+                setTimeout(() => {
+                    setMessages(prev => {
+                        // Find the last assistant message with content
+                        for (let i = prev.length - 1; i >= 0; i--) {
+                            const msg = prev[i];
                             if (msg.kind === "text" && !msg.isUser && msg.text.trim().length > 0) {
-                                idx = i;
+                                // Auto-play this message
+                                playMessageRef.current!(msg.text, i).catch(err => {
+                                    console.error("Auto-play error:", err);
+                                });
                                 break;
                             }
                         }
-
-                        if (idx === -1) {
-                            // No assistant message with content found, append suggestions to end
-                            return [...filtered, ...suggestions.map(s => ({
-                                kind: "suggestions" as const,
-                                field: s.field,
-                                options: s.options,
-                            }))];
-                        }
-
-                        // Insert suggestions immediately after the last assistant message
-                        const suggestionBlocks: ChatItem[] = suggestions.map(s => ({
-                            kind: "suggestions" as const,
-                            field: s.field,
-                            options: s.options,
-                        }));
-                        
-                        return [...filtered.slice(0, idx + 1), ...suggestionBlocks, ...filtered.slice(idx + 1)];
+                        return prev;
                     });
-                }, 100); // Small delay to ensure React has processed all updates
+                }, 200); // Delay to ensure message is fully rendered
             }
         };
 
-        const handleAction = ({ data, id }: any) => {
+        const handleAction = ({ data }: any) => {
             const txt = data.assistant_message || "Action completed.";
-            setMessages(prev => [...prev, { kind: "text", isUser: false, text: txt }]);
+
+            setMessages(prev => {
+                const newMessages = [...prev, { kind: "text" as const, isUser: false, text: txt }];
+                const messageIndex = newMessages.length - 1;
+
+                // Auto-play if enabled and nothing is playing
+                if (autoPlayEnabledRef.current && !playingMessageIndexRef.current && playMessageRef.current && txt.trim().length > 0) {
+                    setTimeout(() => {
+                        playMessageRef.current!(txt, messageIndex).catch(err => {
+                            console.error("Auto-play error:", err);
+                        });
+                    }, 100);
+                }
+
+                return newMessages;
+            });
         };
 
         const handleActionRequest = ({ id, data }: any) => {
@@ -243,75 +233,77 @@ export function AssistantWidget() {
         const handleActionCancelled = ({ id }: any) => {
             setMessages(prev =>
                 prev.map(m =>
-                    m.kind === "action" && m.id === id ? { ...m, status: "cancelled" } : m
+                    m.kind === "action" && m.id === id
+                        ? { ...m, status: "cancelled" }
+                        : m
                 )
             );
         };
 
-        // ⭐⭐⭐ FIXED LOGIC — SUGGESTIONS ALWAYS AFTER LAST ASSISTANT MESSAGE ⭐⭐⭐
-        const handleAccounts = ({ accounts }: any) => {
-            const suggestionData = {
-                field: "from_account",
+        const handleAccounts = ({ accounts, field }: any) => {
+            // Ensure input is enabled when suggestions arrive
+            setIsSending(false);
+            isSendingRef.current = false;
+
+            const suggestion = {
+                kind: "suggestions" as const,
+                field,
                 options: accounts.map((acc: any) => ({
                     label: `${acc.type} • PLN ${acc.balance}`,
                     value: acc.iban,
                 })),
             };
 
-            // Always queue suggestions - they will be applied after stream ends or with a delay
-            // This ensures React has processed all stream updates
-            pendingSuggestionsRef.current = [suggestionData];
+            // Insert suggestions after the last assistant message
+            setMessages(prev => {
+                // Remove any existing suggestions for the same field
+                const filtered = prev.filter(m => !(m.kind === "suggestions" && m.field === field));
 
-            // If currently streaming, wait for stream:end to apply
-            if (isSendingRef.current) {
-                return;
-            }
-
-            // If not streaming, apply after a small delay to ensure state is updated
-            setTimeout(() => {
-                if (!pendingSuggestionsRef.current) return; // Already applied
-
-                const suggestions = pendingSuggestionsRef.current;
-                pendingSuggestionsRef.current = null;
-
-                setMessages(prev => {
-                    // Remove any existing suggestions for the same fields to prevent duplicates
-                    const filtered = prev.filter(m => 
-                        !(m.kind === "suggestions" && suggestions.some(s => s.field === m.field))
-                    );
-
-                    // Find the last assistant text message with content
-                    let idx = -1;
-                    for (let i = filtered.length - 1; i >= 0; i--) {
-                        const msg = filtered[i];
-                        if (msg.kind === "text" && !msg.isUser && msg.text.trim().length > 0) {
-                            idx = i;
-                            break;
-                        }
+                // Find the last assistant text message
+                let idx = -1;
+                for (let i = filtered.length - 1; i >= 0; i--) {
+                    const msg = filtered[i];
+                    if (msg.kind === "text" && !msg.isUser && msg.text.trim().length > 0) {
+                        idx = i;
+                        break;
                     }
+                }
 
-                    if (idx === -1) {
-                        // No assistant message with content found, append to end
-                        return [...filtered, ...suggestions.map(s => ({
-                            kind: "suggestions" as const,
-                            field: s.field,
-                            options: s.options,
-                        }))];
-                    }
+                // If no assistant message found, append to end
+                if (idx === -1) {
+                    return [...filtered, suggestion];
+                }
 
-                    // Insert suggestions immediately after the last assistant message
-                    const suggestionBlocks: ChatItem[] = suggestions.map(s => ({
-                        kind: "suggestions" as const,
-                        field: s.field,
-                        options: s.options,
-                    }));
-                    
-                    return [...filtered.slice(0, idx + 1), ...suggestionBlocks, ...filtered.slice(idx + 1)];
-                });
-            }, 100); // Small delay to ensure React has processed all updates
+                // Insert suggestions immediately after the last assistant message
+                return [...filtered.slice(0, idx + 1), suggestion, ...filtered.slice(idx + 1)];
+            });
         };
 
-        // SOCKET .on
+        // ⭐⭐⭐ FIX: HANDLE chat:assistant ⭐⭐⭐
+        const handleAssistant = ({ content }: { content: string }) => {
+            if (!content || !content.trim()) return;
+
+            // Reset sending state when assistant message arrives
+            setIsSending(false);
+            isSendingRef.current = false;
+
+            setMessages(prev => {
+                const newMessages = [...prev, { kind: "text" as const, isUser: false, text: content }];
+                const messageIndex = newMessages.length - 1;
+
+                // Auto-play if enabled and nothing is playing
+                if (autoPlayEnabledRef.current && !playingMessageIndexRef.current && playMessageRef.current) {
+                    setTimeout(() => {
+                        playMessageRef.current!(content, messageIndex).catch(err => {
+                            console.error("Auto-play error:", err);
+                        });
+                    }, 100);
+                }
+
+                return newMessages;
+            });
+        };
+
         socket.on("chat:stream:start", handleStreamStart);
         socket.on("chat:stream", handleStream);
         socket.on("chat:stream:end", handleStreamEnd);
@@ -319,6 +311,9 @@ export function AssistantWidget() {
         socket.on("chat:action:request", handleActionRequest);
         socket.on("chat:action:cancelled", handleActionCancelled);
         socket.on("chat:accounts", handleAccounts);
+
+        // ⭐ REGISTER NEW HANDLER
+        socket.on("chat:assistant", handleAssistant);
 
         return () => {
             socket.off("chat:stream:start", handleStreamStart);
@@ -328,17 +323,21 @@ export function AssistantWidget() {
             socket.off("chat:action:request", handleActionRequest);
             socket.off("chat:action:cancelled", handleActionCancelled);
             socket.off("chat:accounts", handleAccounts);
-        };
-    }, []);
 
-    // HANDLE SUGGESTION CLICK
-    const handleSuggestionClick = (value: string, suggestionIndex: number) => {
-        // Remove the suggestion message and add the user's selection
+            // ⭐ UNREGISTER
+            socket.off("chat:assistant", handleAssistant);
+        };
+    }, []); // Empty dependency array - handlers use refs to access current values
+
+    // SUGGESTION CLICK
+    const handleSuggestionClick = (value: string, index: number) => {
+        // Remove the suggestion and add user message
         setMessages(prev => {
-            const filtered = prev.filter((_, i) => i !== suggestionIndex);
-            return [...filtered, { kind: "text", isUser: true, text: value }];
+            const filtered = prev.filter((_, i) => i !== index);
+            return [...filtered, { kind: "text" as const, isUser: true, text: value }];
         });
         setIsSending(true);
+        isSendingRef.current = true;
         socket.emit("chat:message", value);
     };
 
@@ -353,8 +352,8 @@ export function AssistantWidget() {
 
         setMessages(prev => [...prev, { kind: "text", isUser: true, text: msg }]);
         setIsSending(true);
-        socket.emit("chat:message", msg);
 
+        socket.emit("chat:message", msg);
         (e.target as HTMLFormElement).reset();
     };
 
@@ -383,52 +382,49 @@ export function AssistantWidget() {
                     toggleAutoPlay={() => setAutoPlayEnabled(v => !v)}
                 />
 
-                {/* BODY */}
-<div
-    ref={chatBodyRef}
-    className="chat-body flex-1 p-4 overflow-y-auto space-y-4 bg-[#f9ecd8]"
->
-    {!messages.length && (
-        <p className="text-black/80 text-center">
-            This is the start of your conversation.
-        </p>
-    )}
+                {/* CHAT BODY */}
+                <div ref={chatBodyRef} className="chat-body flex-1 p-4 overflow-y-auto space-y-4 bg-[#f9ecd8]">
+                    {!messages.length && (
+                        <p className="text-black/80 text-center">
+                            This is the start of your conversation.
+                        </p>
+                    )}
 
-    {messages.map((m, i) => (
-        <div key={i} className="w-full clear-both">
-            {m.kind === "suggestions" ? (
-                <div className="flex gap-2 flex-wrap mt-1">
-                    {m.options.map(opt => (
-                        <button
-                            key={opt.value}
-                            onClick={() => handleSuggestionClick(opt.value, i)}
-                            className="px-3 py-2 bg-yellow-400 text-black rounded-lg"
-                        >
-                            {opt.label}
-                        </button>
+                    {messages.map((m, i) => (
+                        <div key={i} className="w-full clear-both">
+                            {m.kind === "suggestions" ? (
+                                <div className="flex gap-2 flex-wrap mt-1">
+                                    {m.options.map(opt => (
+                                        <button
+                                            key={opt.value}
+                                            onClick={() => handleSuggestionClick(opt.value, i)}
+                                            className="px-3 py-2 bg-yellow-400 text-black rounded-lg"
+                                        >
+                                            {opt.label}
+                                        </button>
+                                    ))}
+                                </div>
+                            ) : m.kind === "text" ? (
+                                <Message
+                                    message={m.text}
+                                    isUser={m.isUser}
+                                    isPlaying={playingMessageIndex === i}
+                                    onPlay={() => playMessage(m.text, i)}
+                                    onStop={stopMessage}
+                                />
+                            ) : (
+                                <Action
+                                    id={m.id}
+                                    text={m.text}
+                                    status={m.status}
+                                    isPlaying={playingMessageIndex === i}
+                                    onPlay={() => playMessage(m.text, i)}
+                                    onStop={stopMessage}
+                                />
+                            )}
+                        </div>
                     ))}
                 </div>
-            ) : m.kind === "text" ? (
-                <Message
-                    message={m.text}
-                    isUser={m.isUser}
-                    isPlaying={playingMessageIndex === i}
-                    onPlay={() => playMessage(m.text, i)}
-                    onStop={stopMessage}
-                />
-            ) : (
-                <Action
-                    id={m.id}
-                    text={m.text}
-                    status={m.status}
-                    isPlaying={playingMessageIndex === i}
-                    onPlay={() => playMessage(m.text, i)}
-                    onStop={stopMessage}
-                />
-            )}
-        </div>
-    ))}
-</div>
 
                 {/* INPUT */}
                 <div className="bg-card relative h-16 flex items-center">
