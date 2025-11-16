@@ -1,7 +1,7 @@
 // server/lib/modules/ai.ts
 
 import Groq from "groq-sdk";
-import { CASUAL_PROMPT, ROUTER_PROMPT, getActionPrompt } from "./prompts";
+import { CASUAL_PROMPT, ROUTER_PROMPT, getActionPrompt } from "./prompts/index";
 
 export type ChatMessage = {
   role: "system" | "user" | "assistant";

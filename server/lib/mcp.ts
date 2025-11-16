@@ -270,9 +270,12 @@ export class MCP {
                 amount: amt,
             });
         } else if (transfer_type === "external") {
-            if (!recipient_value || !category) {
+            if (!recipient_value) {
                 return { event: "chat:error", payload: { message: "Missing recipient data." } };
             }
+
+            // Provide default category if not specified (e.g., when using contacts)
+            const transferCategory = category || "transfer";
 
             result = await externalTransfer({
                 userId,
@@ -281,7 +284,7 @@ export class MCP {
                 recipientType: recipient_type || "iban",
                 recipientValue: recipient_value,
                 recipientName: recipient_name,
-                category,
+                category: transferCategory,
             });
         }
 
@@ -326,31 +329,46 @@ export class MCP {
             return { event: "chat:error", payload: { message: "Not logged in." } };
         }
 
-        const created = await ContactLib.addContact({
-            userId,
-            alias: action.contact_alias,
-            iban: action.iban,
-            name: action.contact_name,
-        });
+        try {
+            console.log("[MCP] Adding contact:", { userId, alias: action.contact_alias, iban: action.iban });
 
-        if (!created) {
+            const created = await ContactLib.addContact({
+                userId,
+                alias: action.contact_alias,
+                iban: action.iban,
+                name: action.contact_name,
+            });
+
+            if (!created) {
+                console.error("[MCP] Failed to add contact - ContactLib returned null");
+                return {
+                    event: "chat:error",
+                    payload: { message: "Failed to add contact. Please check that the alias and IBAN are valid." },
+                };
+            }
+
+            console.log("[MCP] Contact added successfully:", created);
+
+            const result = { alias: created.alias, name: created.name, iban: created.iban };
+            const reply = await ai.summarizeAction("add_contact", result, history.slice(-maxHistory));
+
+            return {
+                event: "chat:action",
+                payload: {
+                    id,
+                    data: { ...action, assistant_message: reply },
+                },
+                assistantMessage: reply,
+            };
+        } catch (error) {
+            console.error("[MCP] Error in handleAddContact:", error);
             return {
                 event: "chat:error",
-                payload: { message: "Failed to add contact" },
+                payload: { 
+                    message: error instanceof Error ? error.message : "An error occurred while adding the contact." 
+                },
             };
         }
-
-        const result = { alias: created.alias, name: created.name, iban: created.iban };
-        const reply = await ai.summarizeAction("add_contact", result, history.slice(-maxHistory));
-
-        return {
-            event: "chat:action",
-            payload: {
-                id,
-                data: { ...action, assistant_message: reply },
-            },
-            assistantMessage: reply,
-        };
     }
 }
 

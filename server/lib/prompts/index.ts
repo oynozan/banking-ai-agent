@@ -5,6 +5,7 @@ import { CASUAL_PROMPT } from "./casual";
 import { ROUTER_PROMPT } from "./router";
 import { getTransferActionPrompt } from "./transfer";
 import { getAccountActionPrompt } from "./accounts";
+import { getContactActionPrompt } from "./contacts";
 import { getGenericActionPrompt } from "./generic";
 
 export { ACTION_INTENTS, CASUAL_PROMPT, ROUTER_PROMPT, ActionIntent };
@@ -30,6 +31,10 @@ export function getActionPrompt(
     );
   }
 
-  // Everything else (balances, contacts, etc.)
+  if (typedIntent === "add_contact") {
+    return getContactActionPrompt(knownParams, knownContacts);
+  }
+
+  // Everything else (balances, etc.)
   return getGenericActionPrompt(typedIntent, knownParams, knownContacts);
 }

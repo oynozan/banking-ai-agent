@@ -30,6 +30,7 @@ export function AssistantWidget() {
     const chatBodyRef = useRef<HTMLDivElement | null>(null);
     const speechRecRef = useRef<any>(null);
     const audioRef = useRef<HTMLAudioElement | null>(null);
+    const currentAudioUrlRef = useRef<string | null>(null);
 
     const pendingSuggestionsRef = useRef<Array<{ field: string; options: Array<{ label: string; value: string }> }> | null>(null);
 
@@ -76,6 +77,17 @@ export function AssistantWidget() {
         if (audioRef.current) {
             audioRef.current.onended = () => setPlayingMessageIndex(null);
         }
+        
+        // Cleanup on unmount
+        return () => {
+            if (audioRef.current) {
+                audioRef.current.pause();
+                audioRef.current.src = "";
+            }
+            if (currentAudioUrlRef.current) {
+                URL.revokeObjectURL(currentAudioUrlRef.current);
+            }
+        };
     }, []);
 
     // AUTOSCROLL
@@ -121,9 +133,17 @@ export function AssistantWidget() {
         if (!trimmed) return;
 
         try {
+            // Clean up previous audio
             if (audioRef.current) {
                 audioRef.current.pause();
                 audioRef.current.currentTime = 0;
+                audioRef.current.src = "";
+            }
+
+            // Clean up previous blob URL
+            if (currentAudioUrlRef.current) {
+                URL.revokeObjectURL(currentAudioUrlRef.current);
+                currentAudioUrlRef.current = null;
             }
 
             setPlayingMessageIndex(index);
@@ -134,14 +154,66 @@ export function AssistantWidget() {
                 body: JSON.stringify({ text: trimmed }),
             });
 
+            if (!resp.ok) {
+                throw new Error(`TTS request failed: ${resp.status}`);
+            }
+
             const blob = await resp.blob();
             const url = URL.createObjectURL(blob);
+            currentAudioUrlRef.current = url;
 
-            audioRef.current!.src = url;
-            await audioRef.current!.play();
+            if (!audioRef.current) {
+                throw new Error("Audio element not available");
+            }
+
+            // Wait for audio to load before playing
+            await new Promise<void>((resolve, reject) => {
+                if (!audioRef.current) {
+                    reject(new Error("Audio element not available"));
+                    return;
+                }
+
+                const audio = audioRef.current;
+                audio.src = url;
+
+                const handleCanPlay = () => {
+                    audio.removeEventListener("canplay", handleCanPlay);
+                    audio.removeEventListener("error", handleError);
+                    resolve();
+                };
+
+                const handleError = () => {
+                    audio.removeEventListener("canplay", handleCanPlay);
+                    audio.removeEventListener("error", handleError);
+                    reject(new Error("Audio loading failed"));
+                };
+
+                audio.addEventListener("canplay", handleCanPlay);
+                audio.addEventListener("error", handleError);
+
+                // Fallback: if canplay doesn't fire, try after a short delay
+                setTimeout(() => {
+                    if (audio.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) {
+                        handleCanPlay();
+                    }
+                }, 100);
+            });
+
+            if (audioRef.current) {
+                await audioRef.current.play();
+            }
         } catch (err) {
-            console.error("TTS error", err);
+            // Ignore AbortError - it's usually from user interaction or cleanup
+            if (err instanceof Error && err.name !== "AbortError") {
+                console.error("TTS error", err);
+            }
             setPlayingMessageIndex(null);
+            
+            // Clean up on error
+            if (currentAudioUrlRef.current) {
+                URL.revokeObjectURL(currentAudioUrlRef.current);
+                currentAudioUrlRef.current = null;
+            }
         }
     };
 
@@ -153,7 +225,15 @@ export function AssistantWidget() {
         if (audioRef.current) {
             audioRef.current.pause();
             audioRef.current.currentTime = 0;
+            audioRef.current.src = "";
         }
+        
+        // Clean up blob URL when stopping
+        if (currentAudioUrlRef.current) {
+            URL.revokeObjectURL(currentAudioUrlRef.current);
+            currentAudioUrlRef.current = null;
+        }
+        
         setPlayingMessageIndex(null);
     };
 

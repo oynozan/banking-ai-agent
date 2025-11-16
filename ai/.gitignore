@@ -1,8 +1,0 @@
-# Ignore AI environment variables
-.env
-
-# Ignore Node dependencies
-node_modules/
-
-# Ignore text-to-speech output files
-tts-output.mp3

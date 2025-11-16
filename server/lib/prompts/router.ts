@@ -20,17 +20,22 @@ Rules:
    - save/add contact      -> "add_contact"
    - confirm contact alias -> "confirm_alias_match"
 
-3) Use {"mode":"casual","intent":null} only for:
+3) Use {"mode":"casual","intent":null} for:
    - greetings, small talk, or pure informational banking questions.
+   - Confirmation responses: "yes", "yep", "yeah", "y", "ok", "okay", "sure", "confirm", "do it", "go ahead", "proceed"
+   - These are responses to assistant questions, not new action requests
 
 4) Never handle missing parameters here. The ACTION prompts will do that.
+
+CRITICAL: If the user says "yes", "ok", "confirm", etc., this is ALWAYS a confirmation response.
+Use {"mode":"casual","intent":null} for these messages. They are NOT new action requests.
 
 Output exactly one JSON object with keys: mode, intent.
 
 Examples:
 {"mode":"action","intent":"transfer_money"}
 {"mode":"action","intent":"check_balance"}
-{"mode":"casual","intent":null}
+{"mode":"casual","intent":null}  // for "yes", "ok", greetings, etc.
 
 KNOWN_PARAMS:
 {KNOWN_PARAMS}
