@@ -29,6 +29,7 @@ export type MCPResult = {
 export class MCP {
     private handlers: Record<string, (action: any, ctx: MCPContext) => Promise<MCPResult>> = {
         check_balance: this.handleCheckBalance.bind(this),
+        check_account_balance: this.handleCheckAccountBalance.bind(this),
         open_account: this.handleOpenAccount.bind(this),
         transfer_money: this.handleTransferMoney.bind(this),
         show_accounts: this.handleShowAccounts.bind(this),
@@ -53,6 +54,52 @@ export class MCP {
         const balance = await UserLib.getBalanceByUserId(userId);
         const result = { balance };
         const reply = await ai.summarizeAction("check_balance", result, history.slice(-maxHistory));
+
+        return {
+            event: "chat:action",
+            payload: { id, data: { ...action, result, assistant_message: reply } },
+            assistantMessage: reply,
+        };
+    }
+
+    private async handleCheckAccountBalance(action: any, ctx: MCPContext): Promise<MCPResult> {
+        const { userId, ai, history, maxHistory, id } = ctx;
+        if (!userId) {
+            return {
+                event: "chat:error",
+                payload: { message: "You must be logged in to check your account balance" },
+            };
+        }
+
+        const { name, account_name } = action;
+        
+        // Support both "name" and "account_name" parameter names
+        const accountName = name || account_name;
+
+        if (!accountName || typeof accountName !== "string" || accountName.trim().length === 0) {
+            return {
+                event: "chat:error",
+                payload: { message: "Account name is required. Please provide the name of the account you want to check." },
+            };
+        }
+
+        const accountBalance = await UserLib.getBalanceByAccountName(userId, accountName.trim());
+
+        if (!accountBalance) {
+            return {
+                event: "chat:error",
+                payload: { message: `Account named "${accountName.trim()}" not found. Please check the account name and try again.` },
+            };
+        }
+
+        const result = {
+            balance: accountBalance.balance,
+            currency: accountBalance.currency,
+            name: accountBalance.name,
+            iban: accountBalance.iban,
+        };
+
+        const reply = await ai.summarizeAction("check_account_balance", result, history.slice(-maxHistory));
 
         return {
             event: "chat:action",

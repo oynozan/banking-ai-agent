@@ -21,4 +21,34 @@ export default class User {
 
         return totalBalance;
     }
+
+    static async getBalanceByAccountName(userId: string, accountName: string): Promise<{ balance: number; currency: string; name: string; iban: string } | null> {
+        if (!accountName || typeof accountName !== "string" || accountName.trim().length === 0) {
+            return null;
+        }
+
+        // Clean the account name: remove quotes and trim whitespace
+        const cleanedName = accountName.trim().replace(/^["']|["']$/g, "").trim();
+        
+        if (cleanedName.length === 0) {
+            return null;
+        }
+        
+        // Find the account by name and user ID (case-insensitive)
+        const account = await Accounts.findOne({
+            "user.id": userId,
+            name: { $regex: new RegExp(`^${cleanedName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, "i") },
+        }).lean();
+
+        if (!account) {
+            return null;
+        }
+
+        return {
+            balance: account.balance,
+            currency: account.currency,
+            name: account.name,
+            iban: account.iban,
+        };
+    }
 }

@@ -75,10 +75,17 @@ export default class Account {
             return null;
         }
 
-        // Find the account by name and user ID
+        // Clean the account name: remove quotes and trim whitespace
+        const cleanedName = name.trim().replace(/^["']|["']$/g, "").trim();
+        
+        if (cleanedName.length === 0) {
+            return null;
+        }
+        
+        // Find the account by name and user ID (case-insensitive)
         const account = await Accounts.findOne({
             "user.id": userId,
-            name: name.trim(),
+            name: { $regex: new RegExp(`^${cleanedName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, "i") },
         });
 
         if (!account) {

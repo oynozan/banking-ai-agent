@@ -1,5 +1,6 @@
 export const ACTION_INTENTS = [
     "check_balance",
+    "check_account_balance",
     "transfer_money",
     "show_accounts",
     "show_transactions",
@@ -22,6 +23,30 @@ Response shape:
   "missing_parameters": []
 }
 Keep the confirmation short, e.g. "Do you want me to check your balance now?"`,
+
+    check_account_balance: `
+Required fields:
+- "name": string (account name, e.g., "Main Savings", "Emergency Fund")
+
+Use this intent when the user asks about the balance of a SPECIFIC account by name, type, or currency.
+Examples: "How much money do I have in my USD savings account?", "What's the balance of my Main Savings account?", "Show me the balance for my checking account"
+
+If the name is missing:
+{
+  "intent": "check_account_balance",
+  "assistant_message": "Which account would you like to check the balance for? Please provide the account name.",
+  "missing_parameters": ["name"]
+}
+
+If the name is provided:
+{
+  "intent": "check_account_balance",
+  "assistant_message": "Let me check the balance for your 'Main Savings' account.",
+  "name": "Main Savings",
+  "missing_parameters": []
+}
+
+Note: If the user asks for total balance across all accounts (e.g., "What's my total balance?", "How much money do I have?"), use "check_balance" instead.`,
 
     transfer_money: `
 Common fields:
