@@ -30,10 +30,11 @@ export default class Account {
 
     static async createAccount(params: {
         user: { id: string; name?: string };
+        name: string;
         type: "savings" | "checking" | "credit";
         currency: "USD" | "EUR" | "PLN";
     }) {
-        const { user, type, currency } = params;
+        const { user, name, type, currency } = params;
         const iban = await Account.generateUniqueIban(currency);
 
         if (!user.name) {
@@ -47,6 +48,7 @@ export default class Account {
                 id: user.id,
                 name: user.name,
             },
+            name,
             iban,
             balance: 0,
             type,

@@ -69,10 +69,23 @@ export class MCP {
             };
         }
 
+        const { type, currency, name, account_name } = action;
+        
+        // Support both "name" and "account_name" parameter names
+        const accountName = name || account_name;
+
+        if (!accountName || typeof accountName !== "string" || accountName.trim().length === 0) {
+            return {
+                event: "chat:error",
+                payload: { message: "Account name is required. Please provide a name for the account (e.g., 'Main Savings', 'Emergency Fund')." },
+            };
+        }
+
         const newAccount = await AccountLib.createAccount({
             user: { id: userId },
-            type: action.type,
-            currency: action.currency,
+            name: accountName.trim(),
+            type,
+            currency,
         });
 
         if (!newAccount) {
@@ -84,6 +97,7 @@ export class MCP {
 
         const result = {
             iban: newAccount.iban,
+            name: newAccount.name,
             type: newAccount.type,
             currency: newAccount.currency,
         };
@@ -300,6 +314,7 @@ export class MCP {
 function formatAccountList(
     accounts: Array<{
         iban: string;
+        name?: string;
         balance: number;
         currency: string;
         type?: string;
@@ -314,7 +329,9 @@ function formatAccountList(
         const masked = acc.iban;
         const balance = typeof acc.balance === "number" ? acc.balance.toFixed(2) : acc.balance;
         const label = acc.type ? acc.type.charAt(0).toUpperCase() + acc.type.slice(1) : "Account";
-        return `${index + 1}) ${label} • ${acc.currency} ${balance} • ${masked}`;
+        const accountName = acc.name ? `"${acc.name}"` : "";
+        const namePart = accountName ? `${accountName} • ` : "";
+        return `${index + 1}) ${namePart}${label} • ${acc.currency} ${balance} • ${masked}`;
     });
 
     return `${lines.join("\n")}`;

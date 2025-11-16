@@ -88,22 +88,24 @@ Complete external example:
 
     open_account: `
 Required fields:
+- "name": string (account name, e.g., "Main Savings", "Emergency Fund")
 - "type": "savings" | "checking" | "credit"
 - "currency": "EUR" | "USD" | "PLN"
 
-If either is missing:
+If any required field is missing:
 {
   "intent": "open_account",
-  "assistant_message": "Which account type and currency would you like?",
-  "missing_parameters": ["type","currency"]
+  "assistant_message": "What would you like to name this account, and which account type and currency would you like?",
+  "missing_parameters": ["name","type","currency"]
 }
 
-If both are provided:
+If all are provided:
 {
   "intent": "open_account",
-  "assistant_message": "Should I open a savings account in USD?",
-  "type": "...",
-  "currency": "...",
+  "assistant_message": "Should I open a savings account named 'Main Savings' in USD?",
+  "name": "Main Savings",
+  "type": "savings",
+  "currency": "USD",
   "missing_parameters": []
 }`,
     show_accounts: `

@@ -346,6 +346,7 @@ export async function listUserAccounts(userId: string) {
     const accounts = await Accounts.find({ "user.id": userId }).lean();
     return accounts.map(acc => ({
         iban: acc.iban,
+        name: acc.name,
         balance: acc.balance,
         currency: acc.currency,
         type: acc.type,

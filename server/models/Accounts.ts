@@ -7,6 +7,7 @@ export interface IAccount extends Document {
         id: string;
         name: string;
     };
+    name: string;
     iban: string;
     balance: number;
     type: "savings" | "checking" | "credit";
@@ -20,6 +21,7 @@ const AccountSchema = new Schema<IAccount>(
             id: { type: String, required: true },
             name: { type: String, required: true },
         },
+        name: { type: String, required: true },
         iban: { type: String, required: true, unique: true },
         balance: { type: Number, required: true },
         type: { type: String, enum: ["savings", "checking", "credit"], required: true },

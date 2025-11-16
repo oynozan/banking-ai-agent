@@ -16,12 +16,15 @@ import {
 } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 
 type Currency = "USD" | "EUR" | "PLN";
 type AccountType = "savings" | "checking" | "credit";
 
 type Account = {
     iban: string;
+    name: string;
     balance: number;
     type: AccountType;
     currency: Currency;
@@ -81,6 +84,8 @@ export default function AccountsPage() {
                                     key={acc.iban}
                                     className="rounded-sm border border-gold/30 bg-white/3 p-4 hover:border-gold/45 transition-all"
                                 >
+                                    <p className="text-sm text-gray-400">Account Name</p>
+                                    <p className="text-white font-semibold text-lg mb-1">{acc.name}</p>
                                     <p className="text-sm text-gray-400">IBAN</p>
                                     <p className="text-white font-medium break-all">{acc.iban}</p>
                                     <Separator className="my-3" />
@@ -114,12 +119,13 @@ export default function AccountsPage() {
 }
 
 function CreateAccountCard({ onCreated }: { onCreated: () => Promise<void> | void }) {
+    const [name, setName] = useState("");
     const [type, setType] = useState<AccountType | "">("");
     const [currency, setCurrency] = useState<Currency | "">("");
 
     const { mutateAsync: createAccount, isPending } = useMutation({
         mutationKey: ["create-account"],
-        mutationFn: async (payload: { type: AccountType; currency: Currency }) => {
+        mutationFn: async (payload: { name: string; type: AccountType; currency: Currency }) => {
             const accessToken =
                 typeof window !== "undefined" ? localStorage.getItem("accessToken") : null;
             const headers: HeadersInit = {
@@ -139,6 +145,7 @@ function CreateAccountCard({ onCreated }: { onCreated: () => Promise<void> | voi
         },
         onSuccess: async () => {
             toast.success("Account created successfully.");
+            setName("");
             setType("");
             setCurrency("");
             await onCreated();
@@ -149,12 +156,12 @@ function CreateAccountCard({ onCreated }: { onCreated: () => Promise<void> | voi
         },
     });
 
-    const canCreate = type !== "" && currency !== "" && !isPending;
+    const canCreate = name.trim().length > 0 && type !== "" && currency !== "" && !isPending;
 
     const handleCreate = async () => {
         if (!canCreate || !type || !currency) return;
         try {
-            await createAccount({ type, currency });
+            await createAccount({ name: name.trim(), type, currency });
         } catch {
             /* handled in onError */
         }
@@ -164,7 +171,18 @@ function CreateAccountCard({ onCreated }: { onCreated: () => Promise<void> | voi
         <section>
             <h2 className="text-xl text-white mb-2 mt-2">Create New Account</h2>
             <div className="bg-card rounded-sm border border-gold/30 transition-all shadow-xl p-6">
-                <div className="grid gap-4 md:grid-cols-2">
+                <div className="grid gap-4 md:grid-cols-3">
+                    <div className="flex flex-col gap-2">
+                        <Label htmlFor="account-name" className="text-white">Account name</Label>
+                        <Input
+                            id="account-name"
+                            type="text"
+                            placeholder="e.g., Main Savings"
+                            value={name}
+                            onChange={(e) => setName(e.target.value)}
+                            className="w-full"
+                        />
+                    </div>
                     <div className="flex flex-col gap-2">
                         <p className="text-white">Account type</p>
                         <Select

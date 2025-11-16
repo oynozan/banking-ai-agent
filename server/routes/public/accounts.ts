@@ -18,6 +18,7 @@ router.get("/", userToken, authRequired, async (req, res) => {
         res.status(200).json({
             accounts: accounts.map(acc => ({
                 iban: acc.iban,
+                name: acc.name,
                 balance: acc.balance,
                 type: acc.type,
                 currency: acc.currency,
@@ -35,13 +36,20 @@ router.get("/", userToken, authRequired, async (req, res) => {
  */
 router.post("/", userToken, authRequired, async (req, res) => {
     try {
-        const { type, currency } = req.body as {
+        const { name, type, currency } = req.body as {
+            name?: string;
             type?: AccountType;
             currency?: Currency;
         };
 
         const validTypes: AccountType[] = ["savings", "checking", "credit"];
         const validCurrencies: Currency[] = ["USD", "EUR", "PLN"];
+
+        if (!name || typeof name !== "string" || name.trim().length === 0) {
+            return res.status(400).json({
+                error: "Invalid request body. Provide a valid 'name'.",
+            });
+        }
 
         if (!type || !validTypes.includes(type) || !currency || !validCurrencies.includes(currency)) {
             return res.status(400).json({
@@ -51,6 +59,7 @@ router.post("/", userToken, authRequired, async (req, res) => {
 
         const newAccount = await Account.createAccount({
             user: { id: req.user.id, name: req.user.name },
+            name: name.trim(),
             type,
             currency,
         });
@@ -58,6 +67,7 @@ router.post("/", userToken, authRequired, async (req, res) => {
         return res.status(201).json({
             account: {
                 iban: newAccount.iban,
+                name: newAccount.name,
                 balance: newAccount.balance,
                 type: newAccount.type,
                 currency: newAccount.currency,
