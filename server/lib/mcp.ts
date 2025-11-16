@@ -1,13 +1,11 @@
 import type AI from "./ai";
 import type { ChatMessage } from "./ai";
 
-// Modules
 import UserLib from "./modules/user";
 import AccountLib from "./modules/account";
 import {
     internalTransfer,
     externalTransfer,
-    chooseDefaultAccount,
     listUserAccounts,
 } from "./modules/transfer";
 import ContactLib from "./modules/contacts";
@@ -42,25 +40,25 @@ export class MCP {
         return handler ? handler(action, ctx) : null;
     }
 
+    // ---------------- CHECK BALANCE ------------------
+
     private async handleCheckBalance(action: any, ctx: MCPContext): Promise<MCPResult> {
         const { userId, ai, history, maxHistory, id } = ctx;
         if (!userId) {
-            return {
-                event: "chat:error",
-                payload: { message: "You must be logged in to check your balance" },
-            };
+            return { event: "chat:error", payload: { message: "Not logged in." } };
         }
 
         const balance = await UserLib.getBalanceByUserId(userId);
-        const result = { balance };
-        const reply = await ai.summarizeAction("check_balance", result, history.slice(-maxHistory));
+        const reply = await ai.summarizeAction("check_balance", { balance }, history.slice(-maxHistory));
 
         return {
             event: "chat:action",
-            payload: { id, data: { ...action, result, assistant_message: reply } },
+            payload: { id, data: { ...action, balance, assistant_message: reply } },
             assistantMessage: reply,
         };
     }
+
+    // ---------------- OPEN ACCOUNT ------------------
 
     private async handleCheckAccountBalance(action: any, ctx: MCPContext): Promise<MCPResult> {
         const { userId, ai, history, maxHistory, id } = ctx;
@@ -129,13 +127,18 @@ export class MCP {
             };
         }
 
-        const newAccount = await AccountLib.createAccount({
+        const newAcc = await AccountLib.createAccount({
             user: { id: userId },
             name: accountName.trim(),
             type,
             currency,
         });
 
+        const reply = await ai.summarizeAction(
+            "open_account",
+            { iban: newAcc.iban, type: newAcc.type, currency: newAcc.currency },
+            history.slice(-maxHistory)
+        );
         if (!newAccount) {
             return {
                 event: "chat:error",
@@ -154,7 +157,10 @@ export class MCP {
 
         return {
             event: "chat:action",
-            payload: { id, data: { ...action, result, assistant_message: reply } },
+            payload: {
+                id,
+                data: { ...action, iban: newAcc.iban, assistant_message: reply },
+            },
             assistantMessage: reply,
         };
     }
@@ -211,198 +217,113 @@ export class MCP {
     private async handleTransferMoney(action: any, ctx: MCPContext): Promise<MCPResult> {
         const { userId, ai, history, maxHistory, id } = ctx;
         if (!userId) {
-            return {
-                event: "chat:error",
-                payload: { message: "You must be logged in to transfer money" },
-            };
+            return { event: "chat:error", payload: { message: "Not logged in." } };
         }
 
-        let {
+        const {
             transfer_type,
             from_account,
             amount,
             currency,
+            to_account,
             recipient_type,
             recipient_value,
             recipient_name,
             category,
-            to_account,
         } = action;
 
-        const numericAmount =
-            typeof amount === "number" ? amount : amount ? Number(amount) : undefined;
-
-        if (!transfer_type || typeof numericAmount !== "number" || !currency) {
-            return {
-                event: "chat:error",
-                payload: { message: "Missing transfer details" },
-            };
-        }
-
-        if (!from_account) {
-            const fallback = await chooseDefaultAccount(userId, currency);
-            if (!fallback) {
-                return {
-                    event: "chat:error",
-                    payload: {
-                        message: `No ${currency} account available to initiate the transfer`,
-                    },
-                };
-            }
-            from_account = fallback.iban;
+        const amt = Number(amount);
+        if (!transfer_type || !from_account || !amt || !currency) {
+            return { event: "chat:error", payload: { message: "Incomplete transfer details." } };
         }
 
         let result;
+
         if (transfer_type === "internal") {
             if (!to_account) {
-                return {
-                    event: "chat:error",
-                    payload: { message: "Destination account is required" },
-                };
+                return { event: "chat:error", payload: { message: "Missing destination account." } };
             }
 
             result = await internalTransfer({
                 userId,
                 fromIban: from_account,
                 toIban: to_account,
-                amount: numericAmount,
+                amount: amt,
             });
-        } else if (transfer_type === "external") {
-            if (
-                !recipient_type ||
-                !recipient_value ||
-                !recipient_name ||
-                !category ||
-                (recipient_type !== "iban" && recipient_type !== "id")
-            ) {
-                return {
-                    event: "chat:error",
-                    payload: { message: "Recipient information is incomplete" },
-                };
+        }
+
+        else if (transfer_type === "external") {
+            if (!recipient_name || !recipient_value || !category) {
+                return { event: "chat:error", payload: { message: "Missing recipient data." } };
             }
 
             result = await externalTransfer({
                 userId,
                 fromIban: from_account,
-                amount: numericAmount,
-                recipientType: recipient_type,
+                amount: amt,
+                recipientType: recipient_type || "iban",
                 recipientValue: recipient_value,
                 recipientName: recipient_name,
                 category,
             });
-        } else {
-            return {
-                event: "chat:error",
-                payload: { message: "Unsupported transfer type" },
-            };
         }
 
-        if (!category || typeof category !== "string" || !category.trim()) {
-            category = "Other";
-        }
+        const reply = await ai.summarizeAction("transfer_money", result, history.slice(-maxHistory));
 
-        const replyData: any = {
-            ...result,
-            oldFromBalance: result.from.balance + amount,
+        return {
+            event: "chat:action",
+            payload: {
+                id,
+                data: { ...action, result, assistant_message: reply },
+            },
+            assistantMessage: reply,
         };
+    }
 
-        if (transfer_type === "internal") {
-            replyData["oldToBalance"] = result.to.balance - amount;
-        } else {
-            replyData["to"]["balance"] = null;
+    // ---------------- SHOW ACCOUNTS (FOR SUGGESTIONS) ------------------
+
+    private async handleShowAccounts(action: any, ctx: MCPContext): Promise<MCPResult> {
+        const { userId } = ctx;
+        if (!userId) {
+            return { event: "chat:error", payload: { message: "Not logged in." } };
         }
+
+        const accounts = await listUserAccounts(userId);
+
+        return {
+            event: "chat:accounts",
+            payload: { accounts }
+        };
+    }
+
+    // ---------------- ADD CONTACT ------------------
+
+    private async handleAddContact(action: any, ctx: MCPContext): Promise<MCPResult> {
+        const { userId, ai, history, maxHistory, id } = ctx;
+
+        if (!userId) {
+            return { event: "chat:error", payload: { message: "Not logged in." } };
+        }
+
+        const created = await ContactLib.addContact({
+            userId,
+            alias: action.contact_alias,
+            iban: action.iban,
+            name: action.contact_name,
+        });
 
         const reply = await ai.summarizeAction(
-            "transfer_money",
-            replyData,
-            history.slice(-maxHistory),
+            "add_contact",
+            { alias: created.alias, iban: created.iban },
+            history.slice(-maxHistory)
         );
 
         return {
             event: "chat:action",
             payload: {
                 id,
-                data: { ...action, from_account, result, assistant_message: reply },
+                data: { ...action, assistant_message: reply },
             },
-            assistantMessage: reply,
-        };
-    }
-
-    private async handleShowAccounts(action: any, ctx: MCPContext): Promise<MCPResult> {
-        const { userId, ai, history, maxHistory, id } = ctx;
-        if (!userId) {
-            return {
-                event: "chat:error",
-                payload: { message: "You must be logged in to view accounts" },
-            };
-        }
-
-        const accounts = await listUserAccounts(userId);
-        if (!accounts || accounts.length === 0) {
-            return {
-                event: "chat:action",
-                payload: {
-                    id,
-                    data: {
-                        intent: "show_accounts",
-                        accounts: [],
-                        assistant_message:
-                            "I couldn't find any accounts linked to your profile yet.",
-                    },
-                },
-            };
-        }
-
-        const reply = formatAccountList(accounts);
-
-        return {
-            event: "chat:action",
-            payload: {
-                id,
-                data: {
-                    intent: "show_accounts",
-                    accounts,
-                    assistant_message: reply,
-                },
-            },
-            assistantMessage: reply,
-        };
-    }
-
-    private async handleAddContact(action: any, ctx: MCPContext): Promise<MCPResult> {
-        const { userId, ai, history, maxHistory, id } = ctx;
-        if (!userId) {
-            return {
-                event: "chat:error",
-                payload: { message: "You must be logged in to manage contacts" },
-            };
-        }
-
-        const alias = action?.contact_alias;
-        const iban = action?.iban;
-        const name = action?.contact_name;
-
-        if (!alias || !iban) {
-            return {
-                event: "chat:error",
-                payload: { message: "Alias and IBAN are required to add a contact" },
-            };
-        }
-
-        const created = await ContactLib.addContact({ userId, alias, iban, name });
-        if (!created) {
-            return {
-                event: "chat:error",
-                payload: { message: "Failed to add contact" },
-            };
-        }
-
-        const result = { alias: created.alias, name: created.name, iban: created.iban };
-        const reply = await ai.summarizeAction("add_contact", result, history.slice(-maxHistory));
-
-        return {
-            event: "chat:action",
-            payload: { id, data: { ...action, result, assistant_message: reply } },
             assistantMessage: reply,
         };
     }

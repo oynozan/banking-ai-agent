@@ -12,8 +12,6 @@ export class AgentListener extends SocketListener {
     private pendingActions: Map<string, any>;
     private currentActionMemory: { intent: string | null; params: Record<string, unknown> };
     private cachedContacts: Array<{ alias: string; name?: string; iban: string }> | null;
-    private proposedContactKeys: Set<string>;
-    private proposedAccountListKeys: Set<string>;
 
     constructor(io: any, socket: any) {
         super(io, socket);
@@ -24,190 +22,220 @@ export class AgentListener extends SocketListener {
         this.pendingActions = new Map();
         this.currentActionMemory = { intent: null, params: {} };
         this.cachedContacts = null;
-        this.proposedContactKeys = new Set();
-        this.proposedAccountListKeys = new Set();
     }
 
     listen() {
-        // Confirmation handlers
+        // CONFIRM
         this.socket.on("chat:action:confirm", async ({ id }: { id: string }) => {
             try {
                 const action = this.pendingActions.get(id);
                 if (!action) return;
-
                 await this.executeAction(id, action);
-            } catch (error) {
-                console.error(error);
-                const message = error instanceof Error ? error.message : "Action failed";
-                this.socket.emit("chat:error", { message });
             } finally {
                 this.pendingActions.delete(id);
-                // Clear memory after execution attempt
                 this.resetActionMemory();
             }
         });
 
+        // DECLINE
         this.socket.on("chat:action:decline", ({ id }: { id: string }) => {
-            if (this.pendingActions.has(id)) {
-                this.pendingActions.delete(id);
-            }
+            this.pendingActions.delete(id);
             this.socket.emit("chat:action:cancelled", { id });
-            // Clear memory on decline
             this.resetActionMemory();
         });
 
+        // DISCONNECT
         this.socket.on("disconnect", () => {
-            // Clear per-connection memory on disconnect
             this.history = [];
             this.isStreaming = false;
             this.pendingActions.clear();
             this.resetActionMemory();
             this.cachedContacts = null;
-            this.proposedContactKeys.clear();
-            this.proposedAccountListKeys.clear();
         });
 
+        // MAIN MESSAGE HANDLER
         this.socket.on("chat:message", async (data: string) => {
             try {
-                const userMessage = typeof data === "string" ? data.trim() : "";
-                if (!userMessage) {
-                    this.socket.emit("chat:error", { message: "Empty message" });
+                const userMessage = (data || "").trim();
+                if (!userMessage) return;
+
+                if (this.isStreaming) {
+                    this.socket.emit("chat:error", { message: "Processing previous message..." });
                     return;
                 }
 
-                if (this.isStreaming) {
-                    this.socket.emit("chat:error", {
-                        message: "Another message is still being processed.",
-                    });
-                    return;
-                }
                 this.isStreaming = true;
 
                 this.pushUserMessage(userMessage);
 
-                // Load user's fast-contacts
                 const userId = this.socket.user?.id as string | undefined;
                 const contacts = await this.getContacts(userId);
 
-                // Decide route with history
-                const route = await this.ai.route(this.history, this.currentActionMemory.params, contacts);
-                console.log("[AI] route", route);
+                // ROUTER
+                const route = await this.ai.route(
+                    this.history,
+                    this.currentActionMemory.params,
+                    contacts
+                );
 
-                if (route.mode === "action" && route?.intent && typeof route.intent === "string") {
-                    // Non-stream JSON action
-                    const intent = route.intent;
-                    const knownParams =
-                        this.currentActionMemory.intent === intent ? this.currentActionMemory.params : {};
-                    const content = await this.ai.completeAction(intent, this.history, knownParams, contacts);
+                console.log("[ROUTER]:", route);
 
-                    // Try parse and examine missing_parameters
-                    try {
-                        const parsed = JSON.parse(content);
-                        const missing = Array.isArray(parsed?.missing_parameters)
-                            ? parsed.missing_parameters
-                            : [];
-
-                        // Merge known non-null parameters into memory for this intent
-                        this.mergeActionMemory(intent, parsed);
-
-                        // Propose saving a contact as soon as alias+IBAN are present, even if transfer is incomplete
-                        await this.maybeProposeSaveContact(parsed, contacts);
-
-                        // If user referenced account by type (e.g., "savings account") but not IBAN, list accounts and auto-fill
-                        await this.maybeListAccountsForSelection(parsed);
-
-                        if (
-                            missing.length > 0 ||
-                            parsed?.intent === "informational" ||
-                            parsed?.intent === "unsupported"
-                        ) {
-                            const steerHistory: ChatMessage[] = [
-                                ...this.history,
-                                {
-                                    role: "user" as const,
-                                    content: `Ask ONLY for these missing fields: ${missing.join(", ")}. Be concise.`,
-                                },
-                            ].slice(-this.maxHistory);
-
-                            await this.streamAssistant(steerHistory);
-                        } else {
-                            const id = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-
-                            this.pendingActions.set(id, parsed);
-                            this.socket.emit("chat:action:request", { id, data: parsed });
-
-                            if (parsed?.assistant_message) {
-                                this.pushAssistantMessage(parsed.assistant_message as string);
-                            }
-
-                            // If this is an external transfer with alias+iban not yet saved, propose adding contact
-                            // (already attempted above; keep here harmlessly or remove)
-                        }
-                    } catch {
-                        await this.streamAssistant();
-                    }
-                } else if (
-                    route.intent === "missing_parameters" &&
-                    Array.isArray(route.missing_parameters) &&
-                    route.missing_parameters.length > 0
-                ) {
-                    await this.askForMissingParameters(route.missing_parameters);
+                if (route.mode === "action") {
+                    await this.handleActionFlow(route.intent, contacts);
                 } else {
                     await this.streamAssistant();
                 }
+
             } catch (e) {
                 console.error(e);
-                this.socket.emit("chat:error", { message: "Failed to process message" });
             } finally {
                 this.isStreaming = false;
             }
         });
     }
 
-    private async getContacts(userId?: string) {
-        if (!userId) return [];
-        if (this.cachedContacts) return this.cachedContacts;
-        const list = await ContactLib.listContacts(userId);
-        this.cachedContacts = list;
-        return list;
-    }
+    // ============================================================
+    // ACTION FLOW HANDLING
+    // ============================================================
 
-    private resetActionMemory() {
-        this.currentActionMemory = { intent: null, params: {} };
-        this.proposedAccountListKeys.clear();
-    }
+    private async handleActionFlow(intent: string, contacts: any[]) {
+        const prevParams =
+            this.currentActionMemory.intent === intent
+                ? this.currentActionMemory.params
+                : {};
 
-    private mergeActionMemory(intent: string, parsed: Record<string, unknown>) {
-        // If intent changes, reset memory
-        if (this.currentActionMemory.intent && this.currentActionMemory.intent !== intent) {
-            this.resetActionMemory();
+        const content = await this.ai.completeAction(
+            intent,
+            this.history,
+            prevParams,
+            contacts
+        );
+
+        let parsed: any = null;
+        try {
+            parsed = JSON.parse(content);
+        } catch (err) {
+            console.error("JSON parse error", err);
+            await this.streamAssistant();
+            return;
         }
-        this.currentActionMemory.intent = intent;
 
-        // Keep only meaningful fields and non-null/defined values
-        const ignore = new Set(["intent", "assistant_message", "missing_parameters"]);
-        const nextParams: Record<string, unknown> = { ...this.currentActionMemory.params };
-        for (const [key, value] of Object.entries(parsed || {})) {
-            if (ignore.has(key)) continue;
-            if (value !== null && value !== undefined && value !== "") {
-                nextParams[key] = value;
+        const missing = parsed.missing_parameters || [];
+
+        // merge params into memory
+        this.mergeActionMemory(intent, parsed);
+
+        // ★ ALWAYS SHOW "from_account" suggestions first
+        if (parsed.intent === "transfer_money" && missing.includes("from_account")) {
+            await this.sendAccountSelection("from_account");
+            return;
+        }
+
+        // ★ After selecting source account, show "to_account" suggestions for internal
+        if (
+            parsed.intent === "transfer_money" &&
+            parsed.transfer_type === "internal" &&
+            missing.includes("to_account")
+        ) {
+            await this.sendAccountSelection("to_account");
+            return;
+        }
+
+        // missing other fields → follow-up
+        if (missing.length > 0) {
+            await this.askForMissingParameters(missing);
+            return;
+        }
+
+        // ALL parameters are collected → confirm action
+        const id = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+
+        this.pendingActions.set(id, parsed);
+
+        this.socket.emit("chat:action:request", {
+            id,
+            data: parsed,
+        });
+
+        if (parsed.assistant_message) {
+            this.pushAssistantMessage(parsed.assistant_message);
+        }
+    }
+
+    // ============================================================
+    // CORRECT ORDER: ASSISTANT FIRST → BUTTONS SECOND
+    // ============================================================
+
+    private async sendAccountSelection(field: "from_account" | "to_account") {
+        console.log("[AI] sendAccountSelection →", field);
+
+        const userId = this.socket.user?.id;
+        if (!userId) return;
+
+        // Get accounts list
+        const result = await this.mcp.execute(
+            "show_accounts",
+            { intent: "show_accounts" },
+            {
+                id: `list-${Date.now()}`,
+                ai: this.ai,
+                userId,
+                history: this.history,
+                maxHistory: this.maxHistory,
             }
+        );
+
+        if (!result) return;
+
+        // 1️⃣ STREAM ASSISTANT MESSAGE FIRST
+        // Generate a default message if not provided
+        const assistantMessage = result.assistantMessage || 
+            (field === "from_account" 
+                ? "Please select the account you want to transfer from:" 
+                : "Please select the account you want to transfer to:");
+
+        this.pushAssistantMessage(assistantMessage);
+        this.socket.emit("chat:stream:start", { ok: true });
+
+        for (const token of assistantMessage.split(" ")) {
+            this.socket.emit("chat:stream", { token: token + " " });
         }
-        this.currentActionMemory.params = nextParams;
-        console.log("[AI] memory", { intent: this.currentActionMemory.intent, params: this.currentActionMemory.params });
+
+        this.socket.emit("chat:stream:end", { ok: true });
+
+        // 2️⃣ THEN SEND SUGGESTION BUTTONS
+        this.socket.emit(result.event, {
+            ...result.payload,
+            field,
+        });
     }
+
+    // ============================================================
+    // FOLLOW UPS
+    // ============================================================
+
+    private async askForMissingParameters(fields: string[]) {
+        const instruction = `Ask ONLY for: ${fields.join(", ")}`;
+        const steer: ChatMessage[] = [
+            ...this.history,
+            { role: "user", content: instruction },
+        ].slice(-this.maxHistory);
+
+        await this.streamAssistant(steer);
+    }
+
+    // ============================================================
+    // HISTORY MGMT
+    // ============================================================
 
     private pushUserMessage(content: string) {
         this.history.push({ role: "user", content });
-        console.log("[AI] pushUserMessage", { length: this.history.length, content });
         this.trimHistory();
     }
 
     private pushAssistantMessage(content: string) {
-        const trimmed = content?.trim();
-        if (!trimmed) return;
-        this.history.push({ role: "assistant", content: trimmed });
-        console.log("[AI] pushAssistantMessage", { length: this.history.length, content: trimmed });
+        if (!content.trim()) return;
+        this.history.push({ role: "assistant", content });
         this.trimHistory();
     }
 
@@ -217,28 +245,27 @@ export class AgentListener extends SocketListener {
         }
     }
 
+    // ============================================================
+    // STREAM CASUAL
+    // ============================================================
+
     private async streamAssistant(history: ChatMessage[] = this.history) {
         this.socket.emit("chat:stream:start", { ok: true });
-        let assistantText = "";
+
+        let final = "";
+
         await this.ai.streamCasual(history, (token: string) => {
-            assistantText += token;
+            final += token;
             this.socket.emit("chat:stream", { token });
         });
+
         this.socket.emit("chat:stream:end", { ok: true });
-        this.pushAssistantMessage(assistantText);
+        this.pushAssistantMessage(final);
     }
 
-    private async askForMissingParameters(fields: string[]) {
-        console.log("[AI] missing_parameters", { fields, history: this.history.length });
-        const instruction = `Ask the user, in plain language, to provide the following fields: ${fields.join(
-            ", ",
-        )}. Be concise and ask only for these fields.`;
-        const steerHistory: ChatMessage[] = [
-            ...this.history,
-            { role: "user" as const, content: instruction },
-        ].slice(-this.maxHistory);
-        await this.streamAssistant(steerHistory);
-    }
+    // ============================================================
+    // EXECUTION
+    // ============================================================
 
     private async executeAction(id: string, action: any) {
         const result = await this.mcp.execute(action.intent, action, {
@@ -255,124 +282,46 @@ export class AgentListener extends SocketListener {
         }
 
         this.socket.emit(result.event, result.payload);
-        if (result.assistantMessage) this.pushAssistantMessage(result.assistantMessage);
-    }
 
-    private async maybeProposeSaveContact(action: any, contacts: Array<{ alias: string; name?: string; iban: string }>) {
-        try {
-            const userId = this.socket.user?.id as string | undefined;
-            if (
-                action?.intent === "transfer_money" &&
-                action?.transfer_type === "external" &&
-                action?.recipient_type === "iban" &&
-                typeof action?.recipient_value === "string" &&
-                action?.recipient_value &&
-                (typeof action?.recipient_name === "string" ? action?.recipient_name : this.currentActionMemory.params?.["recipient_name"])
-            ) {
-                const aliasCandidate = String(
-                    (action.recipient_name as string) || (this.currentActionMemory.params?.["recipient_name"] as string) || "",
-                ).trim();
-                if (!aliasCandidate) return;
-                const exists = (contacts || []).some(
-                    c =>
-                        c.alias.toLowerCase().trim() === aliasCandidate.toLowerCase() ||
-                        c.iban.trim() === String(action.recipient_value).trim(),
-                );
-                if (!exists) {
-                    const key = `${userId || "anon"}|${aliasCandidate.toLowerCase()}|${String(action.recipient_value).trim()}`;
-                    if (this.proposedContactKeys.has(key)) return;
-                    this.proposedContactKeys.add(key);
-
-                    const saveId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-                    const addAction = {
-                        intent: "add_contact",
-                        contact_alias: aliasCandidate,
-                        contact_name: aliasCandidate, // default; user can overwrite
-                        iban: action.recipient_value,
-                        assistant_message: `Save contact '${aliasCandidate}' with IBAN ${action.recipient_value}?`,
-                        missing_parameters: [],
-                    };
-                    this.pendingActions.set(saveId, addAction);
-                    this.socket.emit("chat:action:request", { id: saveId, data: addAction });
-                }
-            }
-        } catch (e) {
-            console.error("[AI] maybeProposeSaveContact failed", e);
+        if (result.assistantMessage) {
+            this.pushAssistantMessage(result.assistantMessage);
         }
     }
 
-    private detectAccountPreferenceFromText(text: string | undefined): { type?: "savings" | "checking" | "credit"; currency?: "PLN" | "EUR" | "USD" } {
-        if (!text) return {};
-        const lower = text.toLowerCase();
-        let type: "savings" | "checking" | "credit" | undefined;
-        if (/\bsavings?\b/.test(lower)) type = "savings";
-        else if (/\bchecking\b/.test(lower)) type = "checking";
-        else if (/\bcredit\b/.test(lower)) type = "credit";
+    // ============================================================
+    // CONTACTS CACHE
+    // ============================================================
 
-        let currency: "PLN" | "EUR" | "USD" | undefined;
-        if (/\bpln\b|\bzł|\bzloty/.test(lower)) currency = "PLN";
-        else if (/\beur\b|\beuro/.test(lower)) currency = "EUR";
-        else if (/\busd\b|\bdollar|\$\b/.test(lower)) currency = "USD";
-
-        return { type, currency };
+    private async getContacts(userId?: string) {
+        if (!userId) return [];
+        if (this.cachedContacts) return this.cachedContacts;
+        const list = await ContactLib.listContacts(userId);
+        this.cachedContacts = list;
+        return list;
     }
 
-    private async maybeListAccountsForSelection(parsed: any) {
-        try {
-            if (parsed?.intent !== "transfer_money") return;
-            const lastUser = [...this.history].reverse().find(m => m.role === "user");
-            const { type: prefType, currency: prefCurrency } = this.detectAccountPreferenceFromText(lastUser?.content);
-            if (!prefType && !prefCurrency) return;
+    private resetActionMemory() {
+        this.currentActionMemory = { intent: null, params: {} };
+    }
 
-            const userId = this.socket.user?.id as string | undefined;
-            if (!userId) return;
-
-            const missing: string[] = Array.isArray(parsed?.missing_parameters) ? parsed.missing_parameters : [];
-
-            // Determine which field we try to resolve
-            const needFrom = missing.includes("from_account");
-            const needTo = parsed?.transfer_type === "internal" && missing.includes("to_account");
-            if (!needFrom && !needTo) return;
-
-            const field = needFrom ? "from_account" : "to_account";
-            const key = `${userId}|${field}|${prefType || "any"}|${prefCurrency || "any"}`;
-            if (this.proposedAccountListKeys.has(key)) return;
-            this.proposedAccountListKeys.add(key);
-
-            // List accounts via MCP (also emits account list to UI)
-            const result = await this.mcp.execute("show_accounts", { intent: "show_accounts" }, {
-                id: `list-${Date.now()}`,
-                ai: this.ai,
-                userId,
-                history: this.history,
-                maxHistory: this.maxHistory,
-            });
-            if (result) {
-                this.socket.emit(result.event, result.payload);
-                if (result.assistantMessage) this.pushAssistantMessage(result.assistantMessage);
-            }
-
-            // Try to auto-fill the IBAN based on preference
-            const accounts: Array<{ iban: string; currency: string; type?: string }> =
-                (result?.payload?.data?.accounts as any[]) || [];
-
-            const desiredCurrency: string | undefined =
-                prefCurrency || (typeof parsed?.currency === "string" ? parsed.currency : undefined);
-
-            const matches = accounts.filter(acc => {
-                const typeOk = prefType ? acc.type === prefType : true;
-                const currencyOk = desiredCurrency ? acc.currency === desiredCurrency : true;
-                return typeOk && currencyOk;
-            });
-
-            const chosen = matches[0] || accounts.find(a => (prefType ? a.type === prefType : true));
-            if (chosen?.iban) {
-                this.currentActionMemory.params[field] = chosen.iban;
-                // Also update parsed structure in-case subsequent logic depends on it
-                parsed[field] = chosen.iban;
-            }
-        } catch (e) {
-            console.error("[AI] maybeListAccountsForSelection failed", e);
+    private mergeActionMemory(intent: string, parsed: Record<string, unknown>) {
+        if (this.currentActionMemory.intent && this.currentActionMemory.intent !== intent) {
+            this.resetActionMemory();
         }
+
+        this.currentActionMemory.intent = intent;
+
+        const ignore = new Set(["intent", "assistant_message", "missing_parameters"]);
+
+        const nextParams = { ...this.currentActionMemory.params };
+
+        for (const [key, value] of Object.entries(parsed)) {
+            if (ignore.has(key)) continue;
+            if (value !== null && value !== undefined && value !== "") {
+                nextParams[key] = value;
+            }
+        }
+
+        this.currentActionMemory.params = nextParams;
     }
 }

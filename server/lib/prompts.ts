@@ -49,43 +49,80 @@ If the name is provided:
 Note: If the user asks for total balance across all accounts (e.g., "What's my total balance?", "How much money do I have?"), use "check_balance" instead.`,
 
     transfer_money: `
-Common fields:
-- "transfer_type": "internal" | "external"
-- "amount": number
-- "currency": "PLN" | "EUR" | "USD"
-- "from_account": string (IBAN owned by the user). If the user does not specify, ask which account to use. Only if they refuse, the backend will pick their most-funded savings account in that currency.
-- NEVER ask for BIC/SWIFT codes; IBAN alone is sufficient.
-- If the recipient looks like another person/company (e.g., "send to [NAME]"), set "transfer_type" to "external".
-- Only treat it as "internal" when the user clearly states they are moving money between their own accounts (e.g., "move money from my checking to my savings").
+Goal: guide the user through a simple STEP-BY-STEP transfer flow.
 
-Using KNOWN_CONTACTS (if provided):
-- If the user mentions a name/alias (e.g., "mom", "Anna"), look up a case-insensitive match in KNOWN_CONTACTS.
-- If a match is found, set:
-  - "transfer_type": "external"
-  - "recipient_type": "iban"
-  - "recipient_value": contact.iban
-  - "recipient_name": contact.name || contact.alias
-- Do NOT ask for the IBAN if it is available in KNOWN_CONTACTS.
+REQUIRED FIELDS:
+- "from_account": string (IBAN owned by the user)
+- "transfer_type": "internal" | "external"
 
 If transfer_type = "internal":
-- require "to_account": IBAN of another account owned by the user.
+    - "to_account": string (IBAN of another user-owned account)
 
 If transfer_type = "external":
-- require "recipient_type": "iban" | "id" | "account_id"
-- require "recipient_value": IBAN, user id, or account id (only ONE identifier is required; if the user provides any single identifier, treat the recipient requirement as satisfied and do not ask for the others)
-- require "recipient_name": string
-- require "category": string (e.g., "Rent", "Gift").
-- When the user answers with a number followed by a currency (e.g., "50 PLN", "send 200 usd"), treat that as both amount AND currency—even if it was provided in response to a follow-up question.
-- When only one field is missing, ask ONLY for that specific field (e.g., if amount is known but currency is not, ask only for the currency).
+    - "recipient_type": "iban"      // ALWAYS "iban"
+    - "recipient_value": string     // recipient IBAN
+    - "recipient_name": string      // recipient name or alias
 
-Missing example:
+- "amount": number
+- "currency": "PLN"                 // ALWAYS PLN
+
+Optional:
+- "category": string, only if clearly provided by the user.
+
+GENERAL RULES:
+- User currency is ALWAYS PLN. Do NOT allow EUR or USD.
+- NEVER ask for BIC/SWIFT or additional banking details.
+- If user says “50 PLN”, treat it as both amount and currency.
+- Ask ONLY for missing fields, one step at a time.
+
+STEP ORDER (VERY IMPORTANT):
+
+1) FROM ACCOUNT FIRST
+   If "from_account" is missing:
+   - set: missing_parameters = ["from_account"]
+   - assistant_message: "From which of your accounts should I send the money?"
+
+2) RECIPIENT SECOND
+   After from_account:
+   - If the user mentions own accounts (e.g., “my savings”, “to my other account”)
+       set transfer_type = "internal"
+       require "to_account"
+   - If the user mentions any person/company/alias
+       set transfer_type = "external"
+       require:
+           "recipient_type": "iban"
+           "recipient_value"
+           "recipient_name"
+   - assistant_message example:
+       "Who should I send the money to?"
+
+3) AMOUNT LAST
+   After source + recipient are known:
+   - If amount or currency missing:
+       ask ONLY for them
+   - assistant_message: "How much should I send?"
+
+4) CONFIRMATION
+   When everything is present:
+   - missing_parameters = []
+   - assistant_message:
+       "Send {amount} PLN from {from_account} to {recipient/to_account}?".
+
+KNOWN_CONTACTS:
+- If user mentions alias/name in known contacts:
+    - auto-fill recipient_type = "iban"
+    - recipient_value = contact.iban
+    - recipient_name = contact.name or alias
+- DO NOT ask for IBAN if found in contacts.
+
+Example (first step):
 {
   "intent": "transfer_money",
-  "assistant_message": "Which account should I send the money from, how much (PLN, EUR, or USD), and to whom?",
-  "missing_parameters": ["from_account","amount","currency","transfer_type"]
+  "assistant_message": "From which of your accounts should I send the money?",
+  "missing_parameters": ["from_account"]
 }
 
-Complete internal example:
+Example (internal):
 {
   "intent": "transfer_money",
   "transfer_type": "internal",
@@ -97,7 +134,7 @@ Complete internal example:
   "missing_parameters": []
 }
 
-Complete external example:
+Example (external):
 {
   "intent": "transfer_money",
   "transfer_type": "external",
@@ -106,11 +143,12 @@ Complete external example:
   "currency": "PLN",
   "recipient_type": "iban",
   "recipient_value": "PL555...",
-  "recipient_name": "Anna Nowak",
-  "category": "Rent",
-  "assistant_message": "Send 80 PLN from PL001... to Anna Nowak (PL555...)?",
+  "recipient_name": "Anna",
+  "assistant_message": "Send 80 PLN from PL001... to Anna (PL555...)?",
   "missing_parameters": []
-}`,
+}
+`,
+
 
     open_account: `
 Required fields:
@@ -279,55 +317,53 @@ export function getActionPrompt(intent: string, knownParams?: Record<string, unk
 }
 
 export const ROUTER_PROMPT = `
-You are a classifier that decides if the user's message should trigger:
+You are a classifier that decides whether the user's message should trigger:
 
-- an ACTION JSON response (using that intent's dedicated prompt), or
-- a CASUAL plain-text reply (using the CASUAL_PROMPT).
+- an ACTION JSON response (using that intent’s dedicated prompt), or
+- a CASUAL text reply (using the CASUAL_PROMPT).
 
-CRITICAL: Only analyze the LATEST user-role message. Conversation history is for context only. NEVER extract action parameters from assistant-role messages (like account lists or summaries you generated). Only use information explicitly stated in the current user message.
+RULES:
 
-Rules:
+1) If the user says anything related to sending or moving money (e.g. 
+   "transfer", "send money", "move money", "make a payment",
+   "pay someone", "transfer funds", "send cash"), 
+   ALWAYS choose:
+   {"mode":"action","intent":"transfer_money"}
+   EVEN IF the user has not provided ANY parameters.
+   The action prompt will separately ask for missing fields.
 
-1) If the user is asking to perform a concrete app action AND has provided
-   all required fields for that action (e.g. "send 50 EUR to Anna's IBAN DE..."),
-   choose: {"mode":"action","intent":"<one of the intents>"}
+2) If the user asks for ANY other concrete action 
+   (check balance, show accounts, show transactions, add contact, open account, show IBAN),
+   choose:
+   {"mode":"action","intent":"<intent>"}
 
-2) If the user is asking to perform an action but is missing required info,
-   output:
-   {
-     "mode": "casual",
-     "intent": "missing_parameters",
-     "missing_parameters": ["amount","currency"]
-   }
-   Always list the actual required field names that are missing (e.g., "amount", "currency", "from_account"). This instructs the assistant to ask ONLY for those fields in plain text.
+3) ONLY choose {"mode":"casual","intent":null} when the user is NOT trying to perform a banking action 
+   (greetings, chit-chat, questions not related to operations)
 
-3) Only choose {"mode":"casual","intent":null} when the user is NOT asking for an action (greetings, chit-chat, generic info).
-
-MEMORY AND FOLLOW-UPS:
-- If the latest user message is a follow-up that fills in only the missing pieces (e.g., the user replies "50" after being asked for the amount), COMBINE it with previously provided USER parameters and KNOWN_PARAMS to determine whether the action is now complete.
-- Do NOT require the user to repeat parameters they already provided earlier. Preserve previously provided values unless the user changes them.
+4) NEVER output {"mode":"casual","intent":"missing_parameters"}.
+   Missing parameters must ALWAYS be handled inside the ACTION prompt,
+   not here. The router only decides the intent, not the missing fields.
 
 Allowed ACTION intents:
-- ${ACTION_INTENTS.join("\n- ")}
-
-Note: There is NO "schedule_transfer" intent. Scheduled transfers are NOT supported.
+- check_balance
+- transfer_money
+- show_accounts
+- show_transactions
+- add_contact
+- confirm_alias_match
+- open_account
+- show_iban
 
 Output exactly one JSON object with keys: mode, intent.
 
 Examples:
+{"mode":"action","intent":"transfer_money"}
+{"mode":"action","intent":"check_balance"}
 {"mode":"casual","intent":null}
-{"mode":"casual","intent":"missing_parameters","missing_parameters":["amount","currency"]}
-${ACTION_INTENTS.map(intent => `{"mode":"action","intent":"${intent}"}`).join("\n")}
 
-Understand the phrases like "my acc balance" that means check_balance action.
-Don't forget that you are not responsible of checking the balance, you are just a router that decides if the user's message should trigger an ACTION JSON or a CASUAL plain-text reply.
- 
 KNOWN_PARAMS:
-Use these previously provided user parameters when deciding if the latest message completes an action:
 {KNOWN_PARAMS}
 
 KNOWN_CONTACTS:
-You may use the user's fast-contacts to decide whether the latest message already contains a resolvable recipient (e.g., "send to mom").
 {KNOWN_CONTACTS}
 `;
-// ============================================================
