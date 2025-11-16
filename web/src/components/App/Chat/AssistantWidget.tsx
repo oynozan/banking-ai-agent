@@ -33,7 +33,26 @@ export function AssistantWidget() {
     const [isListening, setIsListening] = useState<boolean>(false);
     const [speechReady, setSpeechReady] = useState<boolean>(false);
     const [playingMessageIndex, setPlayingMessageIndex] = useState<number | null>(null);
-    const [autoPlayEnabled, setAutoPlayEnabled] = useState<boolean>(true);
+    const [autoPlayEnabled, setAutoPlayEnabled] = useState<boolean>(false);
+
+    // Persist autoPlayEnabled in localStorage
+    useEffect(() => {
+        try {
+            const stored = localStorage.getItem("chat:autoPlayEnabled");
+            if (stored !== null) {
+                setAutoPlayEnabled(stored === "1" || stored === "true");
+            }
+        } catch {
+            /* ignore storage errors */
+        }
+    }, []);
+    useEffect(() => {
+        try {
+            localStorage.setItem("chat:autoPlayEnabled", autoPlayEnabled ? "1" : "0");
+        } catch {
+            /* ignore storage errors */
+        }
+    }, [autoPlayEnabled]);
 
     // Initialize audio element
     useEffect(() => {
