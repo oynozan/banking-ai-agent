@@ -32,6 +32,15 @@ Common fields:
 - If the recipient looks like another person/company (e.g., "send to [NAME]"), set "transfer_type" to "external".
 - Only treat it as "internal" when the user clearly states they are moving money between their own accounts (e.g., "move money from my checking to my savings").
 
+Using KNOWN_CONTACTS (if provided):
+- If the user mentions a name/alias (e.g., "mom", "Anna"), look up a case-insensitive match in KNOWN_CONTACTS.
+- If a match is found, set:
+  - "transfer_type": "external"
+  - "recipient_type": "iban"
+  - "recipient_value": contact.iban
+  - "recipient_name": contact.name || contact.alias
+- Do NOT ask for the IBAN if it is available in KNOWN_CONTACTS.
+
 If transfer_type = "internal":
 - require "to_account": IBAN of another account owned by the user.
 
@@ -110,7 +119,31 @@ If you need to proactively show accounts before a transfer (and the user hasn't 
 `,
     show_transactions: "",
     show_iban: "",
-    add_contact: "",
+    add_contact: `
+Required fields:
+- "contact_alias": string (e.g., "mom", "Anna")
+- "iban": string
+Optional:
+- "contact_name": string
+
+If either required field is missing, ask ONLY for that field.
+
+Missing example:
+{
+  "intent": "add_contact",
+  "assistant_message": "What alias should I use and what's the IBAN?",
+  "missing_parameters": ["contact_alias","iban"]
+}
+
+Complete example:
+{
+  "intent": "add_contact",
+  "contact_alias": "mom",
+  "contact_name": "Anna Kowalska",
+  "iban": "PL555...",
+  "assistant_message": "Save contact 'mom' (Anna Kowalska) with IBAN PL555...?",
+  "missing_parameters": []
+}`,
     confirm_alias_match: "",
 };
 
@@ -179,17 +212,23 @@ Intent-specific guidance:
 KNOWN_PARAMS:
 Provide any previously provided user parameters here (if available). When present, carry these forward unless the user changes them in the latest message. Use them to avoid re-asking for already-specified fields.
 {KNOWN_PARAMS}
+
+KNOWN_CONTACTS:
+Here is the user's saved fast-contact list. You may use it to resolve recipient aliases/names to IBANs when appropriate:
+{KNOWN_CONTACTS}
 `;
 
-export function getActionPrompt(intent: string, knownParams?: Record<string, unknown>): string {
+export function getActionPrompt(intent: string, knownParams?: Record<string, unknown>, knownContacts?: unknown): string {
     const typedIntent = ACTION_SCHEMA_SNIPPETS[intent as ActionIntent]
         ? (intent as ActionIntent)
         : "check_balance";
     const schema = ACTION_SCHEMA_SNIPPETS[typedIntent] || "";
     const known = knownParams && Object.keys(knownParams).length > 0 ? JSON.stringify(knownParams) : "{}";
+    const contacts = knownContacts ? JSON.stringify(knownContacts) : "[]";
     return ACTION_PROMPT_BASE.replace("{INTENT}", intent)
         .replace("{SCHEMA}", schema)
-        .replace("{KNOWN_PARAMS}", known);
+        .replace("{KNOWN_PARAMS}", known)
+        .replace("{KNOWN_CONTACTS}", contacts);
 }
 
 export const ROUTER_PROMPT = `
@@ -239,5 +278,9 @@ Don't forget that you are not responsible of checking the balance, you are just 
 KNOWN_PARAMS:
 Use these previously provided user parameters when deciding if the latest message completes an action:
 {KNOWN_PARAMS}
+
+KNOWN_CONTACTS:
+You may use the user's fast-contacts to decide whether the latest message already contains a resolvable recipient (e.g., "send to mom").
+{KNOWN_CONTACTS}
 `;
 // ============================================================

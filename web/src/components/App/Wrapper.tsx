@@ -10,6 +10,13 @@ import { connectSocket, setSocketAuthToken } from "@/lib/socket";
 
 const queryClient = new QueryClient()
 
+declare global {
+    interface Window {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        p5: any;
+    }
+}
+
 export default function Wrapper({ children }: { children: React.ReactNode }) {
     const router = useRouter();
     const { user, state, setState, setUser } = useUser();

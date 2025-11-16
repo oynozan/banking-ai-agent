@@ -10,6 +10,7 @@ import {
     chooseDefaultAccount,
     listUserAccounts,
 } from "./modules/transfer";
+import ContactLib from "./modules/contacts";
 
 export type MCPContext = {
     id: string;
@@ -31,6 +32,7 @@ export class MCP {
         open_account: this.handleOpenAccount.bind(this),
         transfer_money: this.handleTransferMoney.bind(this),
         show_accounts: this.handleShowAccounts.bind(this),
+        add_contact: this.handleAddContact.bind(this),
     };
 
     async execute(intent: string, action: any, ctx: MCPContext): Promise<MCPResult | null> {
@@ -252,6 +254,44 @@ export class MCP {
                     assistant_message: reply,
                 },
             },
+            assistantMessage: reply,
+        };
+    }
+
+    private async handleAddContact(action: any, ctx: MCPContext): Promise<MCPResult> {
+        const { userId, ai, history, maxHistory, id } = ctx;
+        if (!userId) {
+            return {
+                event: "chat:error",
+                payload: { message: "You must be logged in to manage contacts" },
+            };
+        }
+
+        const alias = action?.contact_alias;
+        const iban = action?.iban;
+        const name = action?.contact_name;
+
+        if (!alias || !iban) {
+            return {
+                event: "chat:error",
+                payload: { message: "Alias and IBAN are required to add a contact" },
+            };
+        }
+
+        const created = await ContactLib.addContact({ userId, alias, iban, name });
+        if (!created) {
+            return {
+                event: "chat:error",
+                payload: { message: "Failed to add contact" },
+            };
+        }
+
+        const result = { alias: created.alias, name: created.name, iban: created.iban };
+        const reply = await ai.summarizeAction("add_contact", result, history.slice(-maxHistory));
+
+        return {
+            event: "chat:action",
+            payload: { id, data: { ...action, result, assistant_message: reply } },
             assistantMessage: reply,
         };
     }

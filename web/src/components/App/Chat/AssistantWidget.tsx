@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 "use client";
 
 import clsx from "clsx";
@@ -16,13 +17,6 @@ import "./chat.scss";
 type ChatItem =
     | { kind: "text"; isUser: boolean; text: string }
     | { kind: "action"; id: string; text: string; status: "pending" | "accepted" | "cancelled" };
-
-// Extend window to include p5 types
-declare global {
-    interface Window {
-        p5: any;
-    }
-}
 
 export function AssistantWidget() {
     const { isOpen, toggle, isFullScreen, toggleFullScreen } = useAssistantStore();
@@ -339,22 +333,6 @@ export function AssistantWidget() {
             </div>
 
             <WidgetTrigger toggle={toggle} isOpen={isOpen} />
-        </div>
-    );
-}
-
-function Message({ message, isUser }: { message: string; isUser: boolean }) {
-    return (
-        <div className={clsx("flex", isUser ? "justify-end" : "justify-start")}>
-            <div
-                className={
-                    `max-w-4/5 border p-4 rounded-[12px] wrap-break-word ${isUser
-                        ? "bg-[#f8cb00] border-[#f8c200] text-black rounded-tr-none"
-                        : "bg-[#13181a] border-[#1c1c1c] text-white rounded-tl-none"}`
-                }
-            >
-                <p>{message}</p>
-            </div>
         </div>
     );
 }

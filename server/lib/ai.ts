@@ -24,14 +24,16 @@ export default class AI {
         await this.stream(CASUAL_PROMPT, history, onToken);
     }
 
-    async completeAction(intent: string, history: ChatMessage[], knownParams?: Record<string, unknown>) {
-        const prompt = getActionPrompt(intent, knownParams);
+    async completeAction(intent: string, history: ChatMessage[], knownParams?: Record<string, unknown>, knownContacts?: unknown) {
+        const prompt = getActionPrompt(intent, knownParams, knownContacts);
         return this.complete(prompt, history, { type: "json_object" }, { intent });
     }
 
-    async route(history: ChatMessage[], knownParams?: Record<string, unknown>): Promise<RouteResult> {
+    async route(history: ChatMessage[], knownParams?: Record<string, unknown>, knownContacts?: unknown): Promise<RouteResult> {
         const routerPrompt =
-            ROUTER_PROMPT.replace("{KNOWN_PARAMS}", JSON.stringify(knownParams && Object.keys(knownParams).length ? knownParams : {}));
+            ROUTER_PROMPT
+                .replace("{KNOWN_PARAMS}", JSON.stringify(knownParams && Object.keys(knownParams).length ? knownParams : {}))
+                .replace("{KNOWN_CONTACTS}", JSON.stringify(Array.isArray(knownContacts) ? knownContacts : knownContacts || []));
         const content = await this.complete(routerPrompt, history, { type: "json_object" }, { mode: "router" });
         const parsed = this.safeParse<RouteResult>(content, { mode: "casual", intent: null });
         if (parsed.missing_parameters && !Array.isArray(parsed.missing_parameters)) {

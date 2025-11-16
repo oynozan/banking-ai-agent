@@ -1,6 +1,7 @@
 import { MCP } from "../lib/mcp";
 import { SocketListener } from "../socket";
 import AI, { type ChatMessage } from "../lib/ai";
+import ContactLib from "../lib/modules/contacts";
 
 export class AgentListener extends SocketListener {
     private ai: AI;
@@ -10,6 +11,7 @@ export class AgentListener extends SocketListener {
     private mcp: MCP;
     private pendingActions: Map<string, any>;
     private currentActionMemory: { intent: string | null; params: Record<string, unknown> };
+    private cachedContacts: Array<{ alias: string; name?: string; iban: string }> | null;
 
     constructor(io: any, socket: any) {
         super(io, socket);
@@ -19,6 +21,7 @@ export class AgentListener extends SocketListener {
         this.mcp = new MCP();
         this.pendingActions = new Map();
         this.currentActionMemory = { intent: null, params: {} };
+        this.cachedContacts = null;
     }
 
     listen() {
@@ -55,6 +58,7 @@ export class AgentListener extends SocketListener {
             this.isStreaming = false;
             this.pendingActions.clear();
             this.resetActionMemory();
+            this.cachedContacts = null;
         });
 
         this.socket.on("chat:message", async (data: string) => {
@@ -75,8 +79,12 @@ export class AgentListener extends SocketListener {
 
                 this.pushUserMessage(userMessage);
 
+                // Load user's fast-contacts
+                const userId = this.socket.user?.id as string | undefined;
+                const contacts = await this.getContacts(userId);
+
                 // Decide route with history
-                const route = await this.ai.route(this.history, this.currentActionMemory.params);
+                const route = await this.ai.route(this.history, this.currentActionMemory.params, contacts);
                 console.log("[AI] route", route);
 
                 if (route.mode === "action" && route?.intent && typeof route.intent === "string") {
@@ -84,7 +92,7 @@ export class AgentListener extends SocketListener {
                     const intent = route.intent;
                     const knownParams =
                         this.currentActionMemory.intent === intent ? this.currentActionMemory.params : {};
-                    const content = await this.ai.completeAction(intent, this.history, knownParams);
+                    const content = await this.ai.completeAction(intent, this.history, knownParams, contacts);
 
                     // Try parse and examine missing_parameters
                     try {
@@ -119,6 +127,9 @@ export class AgentListener extends SocketListener {
                             if (parsed?.assistant_message) {
                                 this.pushAssistantMessage(parsed.assistant_message as string);
                             }
+
+                            // If this is an external transfer with alias+iban not yet saved, propose adding contact
+                            await this.maybeProposeSaveContact(parsed, contacts);
                         }
                     } catch {
                         await this.streamAssistant();
@@ -139,6 +150,13 @@ export class AgentListener extends SocketListener {
                 this.isStreaming = false;
             }
         });
+    }
+
+    private async getContacts(userId?: string) {
+        if (!userId) return [];
+        const list = await ContactLib.listContacts(userId);
+        this.cachedContacts = list;
+        return list;
     }
 
     private resetActionMemory() {
@@ -224,5 +242,41 @@ export class AgentListener extends SocketListener {
 
         this.socket.emit(result.event, result.payload);
         if (result.assistantMessage) this.pushAssistantMessage(result.assistantMessage);
+    }
+
+    private async maybeProposeSaveContact(action: any, contacts: Array<{ alias: string; name?: string; iban: string }>) {
+        try {
+            if (
+                action?.intent === "transfer_money" &&
+                action?.transfer_type === "external" &&
+                action?.recipient_type === "iban" &&
+                typeof action?.recipient_value === "string" &&
+                action?.recipient_value &&
+                typeof action?.recipient_name === "string" &&
+                action?.recipient_name
+            ) {
+                const aliasCandidate = String(action.recipient_name).trim();
+                const exists = (contacts || []).some(
+                    c =>
+                        c.alias.toLowerCase().trim() === aliasCandidate.toLowerCase() ||
+                        c.iban.trim() === String(action.recipient_value).trim(),
+                );
+                if (!exists) {
+                    const saveId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+                    const addAction = {
+                        intent: "add_contact",
+                        contact_alias: aliasCandidate,
+                        contact_name: aliasCandidate, // default; user can overwrite
+                        iban: action.recipient_value,
+                        assistant_message: `Save contact '${aliasCandidate}' with IBAN ${action.recipient_value}?`,
+                        missing_parameters: [],
+                    };
+                    this.pendingActions.set(saveId, addAction);
+                    this.socket.emit("chat:action:request", { id: saveId, data: addAction });
+                }
+            }
+        } catch (e) {
+            console.error("[AI] maybeProposeSaveContact failed", e);
+        }
     }
 }
