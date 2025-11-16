@@ -5,12 +5,13 @@ import { SendHorizonal } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
 import Action from "./Action";
+import Message from "./Message";
 import { socket } from "@/lib/socket";
 import WidgetTrigger from "./Trigger";
 import WidgetHeader from "./WidgetHeader";
 import { useAssistantStore } from "@/lib/states";
 
-import './chat.scss';
+import "./chat.scss";
 
 type ChatItem =
     | { kind: "text"; isUser: boolean; text: string }
@@ -55,10 +56,17 @@ export function AssistantWidget() {
 
         const handleError = ({ message }: { message: string }) => {
             setIsSending(false);
-            setMessages(prev => [...prev, { kind: "text", isUser: false, text: `Error: ${message}` }]);
+            setMessages(prev => [
+                ...prev,
+                { kind: "text", isUser: false, text: `Error: ${message}` },
+            ]);
         };
 
-        type ActionPayload = { intent?: string; assistant_message?: string | null; [k: string]: unknown };
+        type ActionPayload = {
+            intent?: string;
+            assistant_message?: string | null;
+            [k: string]: unknown;
+        };
         const handleAction = ({ data, id }: { data: ActionPayload; id?: string }) => {
             const assistantMessage =
                 (data && typeof data.assistant_message === "string" && data.assistant_message) ||
@@ -72,9 +80,11 @@ export function AssistantWidget() {
                     ),
                 );
             } else {
-                setMessages(prev => [...prev, { kind: "text", isUser: false, text: assistantMessage }]);
+                setMessages(prev => [
+                    ...prev,
+                    { kind: "text", isUser: false, text: assistantMessage },
+                ]);
             }
-            console.log("chat:action", data);
             setIsSending(false);
         };
 
@@ -91,7 +101,9 @@ export function AssistantWidget() {
 
         const handleActionCancelled = ({ id }: { id: string }) => {
             setMessages(prev =>
-                prev.map(m => (m.kind === "action" && m.id === id ? { ...m, status: "cancelled" } : m)),
+                prev.map(m =>
+                    m.kind === "action" && m.id === id ? { ...m, status: "cancelled" } : m,
+                ),
             );
             setIsSending(false); // re-enable input
         };
@@ -149,7 +161,9 @@ export function AssistantWidget() {
             id="chat"
             className={clsx(
                 "fixed z-50",
-                isFullScreen ? "chat-screen-full top-0 left-0 w-screen h-screen" : "-bottom-10 right-4",
+                isFullScreen
+                    ? "chat-screen-full top-0 left-0 w-screen h-screen"
+                    : "-bottom-10 right-4",
             )}
         >
             {/* CHAT WINDOW */}
@@ -170,10 +184,15 @@ export function AssistantWidget() {
                 />
 
                 {/* Chat Body */}
-                <div ref={chatBodyRef} className={`chat-body flex-1 p-4 overflow-y-auto space-y-4 bg-zinc-50`}>
+                <div
+                    ref={chatBodyRef}
+                    className={`chat-body flex-1 p-4 overflow-y-auto space-y-4 bg-zinc-50`}
+                >
                     {!messages.length && (
                         <div className="flex justify-center items-center h-full">
-                            <p className="text-black/80 text-center px-4">This is the start of your conversation with banking assistant.</p>
+                            <p className="text-black/80 text-center px-4">
+                                This is the start of your conversation with banking assistant.
+                            </p>
                         </div>
                     )}
                     {messages.map((m, i) =>
@@ -212,22 +231,6 @@ export function AssistantWidget() {
             </div>
 
             <WidgetTrigger toggle={toggle} isOpen={isOpen} />
-        </div>
-    );
-}
-
-function Message({ message, isUser }: { message: string; isUser: boolean }) {
-    return (
-        <div className={clsx("flex", isUser ? "justify-end" : "justify-start")}>
-            <div
-                className={
-                    `max-w-4/5 border p-4 rounded-[12px] wrap-break-word ${isUser
-                        ? "bg-[#f8cb00] border-[#f8c200] text-black rounded-tr-none"
-                        : "bg-[#13181a] border-[#1c1c1c] text-white rounded-tl-none"}`
-                }
-            >
-                <p>{message}</p>
-            </div>
         </div>
     );
 }

@@ -1,10 +1,12 @@
 import Groq from "groq-sdk";
-import { ACTION_PROMPT, CASUAL_PROMPT, ROUTER_PROMPT } from "./prompts";
+import { CASUAL_PROMPT, ROUTER_PROMPT, getActionPrompt } from "./prompts";
 
 export type ChatMessage = {
     role: "system" | "user" | "assistant";
     content: string;
 };
+
+type RouteResult = { mode: "action" | "casual"; intent: string | null; missing_parameters?: string[] };
 
 export default class AI {
     private readonly client: any;
@@ -12,85 +14,97 @@ export default class AI {
 
     constructor() {
         const apiKey = process.env.GROQ_API_KEY;
-        if (!apiKey) {
-            throw new Error("GROQ_API_KEY is not set");
-        }
+        if (!apiKey) throw new Error("GROQ_API_KEY is not set");
 
         this.client = new Groq({ apiKey });
         this.model = process.env.GROQ_MODEL || "llama-3.1-8b-instant";
     }
 
-    private buildMessages(systemPrompt: string, history: ChatMessage[]): ChatMessage[] {
+    async streamCasual(history: ChatMessage[], onToken: (token: string) => void) {
+        await this.stream(CASUAL_PROMPT, history, onToken);
+    }
+
+    async completeAction(intent: string, history: ChatMessage[], knownParams?: Record<string, unknown>) {
+        const prompt = getActionPrompt(intent, knownParams);
+        return this.complete(prompt, history, { type: "json_object" }, { intent });
+    }
+
+    async route(history: ChatMessage[], knownParams?: Record<string, unknown>): Promise<RouteResult> {
+        const routerPrompt =
+            ROUTER_PROMPT.replace("{KNOWN_PARAMS}", JSON.stringify(knownParams && Object.keys(knownParams).length ? knownParams : {}));
+        const content = await this.complete(routerPrompt, history, { type: "json_object" }, { mode: "router" });
+        const parsed = this.safeParse<RouteResult>(content, { mode: "casual", intent: null });
+        if (parsed.missing_parameters && !Array.isArray(parsed.missing_parameters)) {
+            parsed.missing_parameters = [];
+        }
+        return parsed;
+    }
+
+    async summarizeAction(intent: string, result: unknown, history: ChatMessage[]) {
+        const steer: ChatMessage = {
+            role: "user",
+            content: `Summarize the result of intent "${intent}" with this data: ${JSON.stringify(
+                result,
+            )}. Respond with one concise plain-text sentence.`,
+        };
+        return this.complete(CASUAL_PROMPT, [...history, steer], undefined, { intent, mode: "summary" });
+    }
+
+    private buildMessages(systemPrompt: string, history: ChatMessage[]) {
         return [{ role: "system", content: systemPrompt }, ...history];
     }
 
-    async streamCasual(history: ChatMessage[], onToken: (token: string) => void): Promise<void> {
-        const messages = this.buildMessages(CASUAL_PROMPT, history);
-
-        const stream = await this.client.chat.completions.create({
+    private async stream(systemPrompt: string, history: ChatMessage[], onToken: (token: string) => void) {
+        const messages = this.buildMessages(systemPrompt, history);
+        this.log("request", { systemPrompt: systemPrompt.slice(0, 80), messages });
+        const response = await this.client.chat.completions.create({
             model: this.model,
             messages,
             temperature: 0,
             stream: true,
         });
 
-        for await (const chunk of stream) {
-            const token = chunk?.choices?.[0]?.delta?.content || "";
-            if (token) onToken(token);
+        let aggregated = "";
+        for await (const chunk of response) {
+            const token = chunk?.choices?.[0]?.delta?.content;
+            if (token) {
+                aggregated += token;
+                onToken(token);
+            }
         }
+        this.log("stream", { prompt: systemPrompt.slice(0, 80), response: aggregated });
     }
 
-    async completeAction(history: ChatMessage[]): Promise<string> {
-        const messages = this.buildMessages(ACTION_PROMPT, history);
-
+    private async complete(
+        systemPrompt: string,
+        history: ChatMessage[],
+        responseFormat?: { type: string },
+        meta?: Record<string, unknown>,
+    ) {
+        const messages = this.buildMessages(systemPrompt, history);
+        this.log("request", { systemPrompt: systemPrompt.slice(0, 80), messages, meta });
         const response = await this.client.chat.completions.create({
             model: this.model,
             messages,
             temperature: 0,
             stream: false,
-            response_format: { type: "json_object" },
+            response_format: responseFormat,
         });
 
-        return response.choices?.[0]?.message?.content ?? "{}";
+        const content = response.choices?.[0]?.message?.content?.trim() ?? "";
+        this.log("complete", { meta, response: content });
+        return content;
     }
 
-    async route(history: ChatMessage[]): Promise<{ mode: "action" | "casual"; intent: string | null }> {
-        const messages = this.buildMessages(ROUTER_PROMPT, history);
-
-        const response = await this.client.chat.completions.create({
-            model: this.model,
-            messages,
-            temperature: 0,
-            stream: false,
-            response_format: { type: "json_object" },
-        });
-
-        const content = response.choices?.[0]?.message?.content ?? "{\"mode\":\"casual\",\"intent\":null}";
+    private safeParse<T>(content: string, fallback: T): T {
         try {
-            const parsed = JSON.parse(content) as { mode: "action" | "casual"; intent: string | null };
-            return parsed.mode === "action" || parsed.mode === "casual"
-                ? parsed
-                : { mode: "casual", intent: null };
+            return JSON.parse(content) as T;
         } catch {
-            return { mode: "casual", intent: null };
+            return fallback;
         }
     }
 
-    async summarizeBalance(result: unknown, history: ChatMessage[]): Promise<string> {
-        const steer: ChatMessage = {
-            role: "user",
-            content:
-                `Given this data: ${JSON.stringify(result)} ` +
-                `write one concise plain-text sentence telling the user their current balance(s).`,
-        } as const;
-        const messages = this.buildMessages(CASUAL_PROMPT, [...history, steer]);
-
-        const response = await this.client.chat.completions.create({
-            model: this.model,
-            messages,
-            temperature: 0,
-            stream: false,
-        });
-        return response.choices?.[0]?.message?.content?.trim() ?? "";
+    private log(label: string, payload: unknown) {
+        console.log(`[AI] ${label}`, payload);
     }
 }

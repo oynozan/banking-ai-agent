@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { Fragment, useMemo, useState } from "react";
 import { socket } from "@/lib/socket";
 import { Button } from "@/components/ui/button";
 
@@ -27,8 +27,8 @@ export default function Action({ id, text, status }: Props) {
 		<div className="flex justify-start">
 			<div className="bg-[#13181a] bg-diagonal-stripes text-white p-8 rounded-xl w-full">
 				<p>
-					{text}{" "}
-					{cancelled && <span className="text-xs text-gray-400">[cancelled]</span>}
+					<SafeTextWithBreaks text={text} />
+					{cancelled && <span className="text-xs text-gray-400"> [cancelled]</span>}
 				</p>
 
 				{status === "pending" && (
@@ -55,3 +55,19 @@ export default function Action({ id, text, status }: Props) {
 		</div>
 	);
 }
+
+const SafeTextWithBreaks = ({ text }: { text: string }) => {
+	const normalized = useMemo(() => text.replace(/\\n/g, "\n"), [text]);
+	const lines = useMemo(() => normalized.split(/\r?\n/g), [normalized]);
+
+	return (
+		<>
+			{lines.map((line, i) => (
+				<Fragment key={i}>
+					{line}
+					{i < lines.length - 1 && <><br /><br /></>}
+				</Fragment>
+			))}
+		</>
+	);
+};

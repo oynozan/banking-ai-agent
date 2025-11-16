@@ -1,5 +1,5 @@
-import plnToOthers from "./exchange";
-import Accounts from "../models/Accounts";
+import plnToOthers from "../exchange";
+import Accounts from "../../models/Accounts";
 
 export default class User {
     static async getBalanceByUserId(userId: string): Promise<number> {

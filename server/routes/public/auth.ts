@@ -3,8 +3,8 @@ import jwt from "jsonwebtoken";
 import bcrypt from "bcryptjs";
 
 import * as dto from "../../lib/dto";
-import UserLib from "../../lib/user";
 import User from "../../models/Users";
+import UserLib from "../../lib/modules/user";
 
 const router = Router();
 
@@ -44,7 +44,7 @@ router.post("/login", async (req, res) => {
                 expiresIn: "24h",
             },
         );
-        const payload = { id: existingUser.id, name: existingUser.name };
+        const payload = { id: existingUser.id, name: existingUser.name, balance };
 
         res.status(200).json({
             status: true,

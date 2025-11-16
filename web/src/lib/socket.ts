@@ -18,6 +18,7 @@ if (!globalThis.__banking_socket) {
 }
 
 export function setSocketAuthToken(token?: string | null) {
+	// eslint-disable-next-line @typescript-eslint/no-explicit-any
 	(socket as any).auth = { token: token ?? undefined };
 }
 

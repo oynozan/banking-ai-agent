@@ -2,38 +2,12 @@ import { Router } from "express";
 
 import Accounts from "../../models/Accounts";
 import { authRequired, userToken } from "../../lib/middlewares";
+import Account from "../../lib/modules/account";
 
 const router = Router();
 
 type Currency = "USD" | "EUR" | "PLN";
 type AccountType = "savings" | "checking" | "credit";
-
-async function generateUniqueIban(currency: Currency): Promise<string> {
-    const currencyPrefix: Record<Currency, string> = {
-        USD: "US",
-        EUR: "DE",
-        PLN: "PL",
-    };
-
-    // create something like: <CC><2 check digits><4 bank><14 account>
-    const prefix = currencyPrefix[currency];
-
-    // Try multiple times in case of rare collisions on unique index
-    for (let attempt = 0; attempt < 7; attempt++) {
-        const checkDigits = Math.floor(10 + Math.random() * 89).toString(); // 2 digits 10-99
-        const bank = Math.floor(1000 + Math.random() * 9000).toString(); // 4 digits
-        const account = Array.from({ length: 14 }, () => Math.floor(Math.random() * 10)).join(""); // 14 digits
-        const iban = `${prefix}${checkDigits}${bank}${account}`;
-
-        // Ensure uniqueness
-        const existing = await Accounts.findOne({ iban }).select("_id").lean();
-        if (!existing) return iban;
-    }
-
-    return `${currencyPrefix[currency]}${Date.now().toString().slice(-10)}${Math.floor(
-        1000 + Math.random() * 9000,
-    ).toString()}`;
-}
 
 /**
  * Get all accounts
@@ -75,15 +49,8 @@ router.post("/", userToken, authRequired, async (req, res) => {
             });
         }
 
-        const iban = await generateUniqueIban(currency);
-
-        const newAccount = await Accounts.create({
-            user: {
-                id: req.user.id,
-                name: req.user.name,
-            },
-            iban,
-            balance: 0,
+        const newAccount = await Account.createAccount({
+            user: { id: req.user.id, name: req.user.name },
             type,
             currency,
         });

@@ -7,6 +7,7 @@ type UserState = "logged_in" | "loading" | "not_logged_in";
 interface IUserState {
     state: UserState;
     user: IUser | null;
+    logout: () => void;
     setUser: (user: IUser) => void;
     setState: (state: UserState) => void;
     clearUser: () => void;
@@ -15,6 +16,7 @@ interface IUserState {
 export const useUser = create<IUserState>(set => ({
     state: "not_logged_in",
     user: null,
+    logout: () => set({ user: null, state: "not_logged_in" }),
     setUser: (user: IUser) => set({ user }),
     setState: (state: UserState) => set({ state }),
     clearUser: () => set({ user: null }),

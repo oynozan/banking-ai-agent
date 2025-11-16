@@ -6,9 +6,10 @@ export class AgentListener extends SocketListener {
     private ai: AI;
     private history: ChatMessage[];
     private isStreaming: boolean;
-    private readonly maxHistory: number = 15;
+    private readonly maxHistory = 15;
     private mcp: MCP;
     private pendingActions: Map<string, any>;
+    private currentActionMemory: { intent: string | null; params: Record<string, unknown> };
 
     constructor(io: any, socket: any) {
         super(io, socket);
@@ -17,6 +18,7 @@ export class AgentListener extends SocketListener {
         this.isStreaming = false;
         this.mcp = new MCP();
         this.pendingActions = new Map();
+        this.currentActionMemory = { intent: null, params: {} };
     }
 
     listen() {
@@ -26,30 +28,15 @@ export class AgentListener extends SocketListener {
                 const action = this.pendingActions.get(id);
                 if (!action) return;
 
-                if (action.intent === "check_balance") {
-                    const userId = this.socket.user?.id;
-                    if (!userId) {
-                        this.socket.emit("chat:error", { message: "Unauthorized: missing user context" });
-                        return;
-                    }
-
-                    const result = await this.mcp.checkBalanceByUserId(userId);
-                    const reply = await this.ai.summarizeBalance(result, this.history.slice(-this.maxHistory));
-
-                    this.socket.emit("chat:action", { id, data: { ...action, result, assistant_message: reply } });
-
-                    if (reply && reply.trim()) {
-                        this.history.push({ role: "assistant", content: reply });
-                        if (this.history.length > this.maxHistory) {
-                            this.history = this.history.slice(-this.maxHistory);
-                        }
-                    }
-                } else {
-                    // passthrough for now
-                    this.socket.emit("chat:action", { id, data: action });
-                }
+                await this.executeAction(id, action);
+            } catch (error) {
+                console.error(error);
+                const message = error instanceof Error ? error.message : "Action failed";
+                this.socket.emit("chat:error", { message });
             } finally {
                 this.pendingActions.delete(id);
+                // Clear memory after execution attempt
+                this.resetActionMemory();
             }
         });
 
@@ -58,6 +45,8 @@ export class AgentListener extends SocketListener {
                 this.pendingActions.delete(id);
             }
             this.socket.emit("chat:action:cancelled", { id });
+            // Clear memory on decline
+            this.resetActionMemory();
         });
 
         this.socket.on("disconnect", () => {
@@ -65,6 +54,7 @@ export class AgentListener extends SocketListener {
             this.history = [];
             this.isStreaming = false;
             this.pendingActions.clear();
+            this.resetActionMemory();
         });
 
         this.socket.on("chat:message", async (data: string) => {
@@ -76,89 +66,71 @@ export class AgentListener extends SocketListener {
                 }
 
                 if (this.isStreaming) {
-                    this.socket.emit("chat:error", { message: "Another message is still being processed." });
+                    this.socket.emit("chat:error", {
+                        message: "Another message is still being processed.",
+                    });
                     return;
                 }
                 this.isStreaming = true;
 
-                // Append user message and trim to last N
-                this.history.push({ role: "user", content: userMessage });
-                if (this.history.length > this.maxHistory) {
-                    this.history = this.history.slice(-this.maxHistory);
-                }
+                this.pushUserMessage(userMessage);
 
                 // Decide route with history
-                const route = await this.ai.route(this.history);
+                const route = await this.ai.route(this.history, this.currentActionMemory.params);
+                console.log("[AI] route", route);
 
-                if (route.mode === "action") {
+                if (route.mode === "action" && route?.intent && typeof route.intent === "string") {
                     // Non-stream JSON action
-                    const content = await this.ai.completeAction(this.history);
+                    const intent = route.intent;
+                    const knownParams =
+                        this.currentActionMemory.intent === intent ? this.currentActionMemory.params : {};
+                    const content = await this.ai.completeAction(intent, this.history, knownParams);
+
                     // Try parse and examine missing_parameters
                     try {
                         const parsed = JSON.parse(content);
-                        const missing = Array.isArray(parsed?.missing_parameters) ? parsed.missing_parameters : [];
-                        if (missing.length > 0 || parsed?.intent === "informational" || parsed?.intent === "unsupported") {
-                            // Stream a casual clarifying reply instead
-                            this.socket.emit("chat:stream:start", { ok: true });
-                            let assistantText = "";
+                        const missing = Array.isArray(parsed?.missing_parameters)
+                            ? parsed.missing_parameters
+                            : [];
+
+                        // Merge known non-null parameters into memory for this intent
+                        this.mergeActionMemory(intent, parsed);
+
+                        if (
+                            missing.length > 0 ||
+                            parsed?.intent === "informational" ||
+                            parsed?.intent === "unsupported"
+                        ) {
                             const steerHistory: ChatMessage[] = [
                                 ...this.history,
-                                { role: "user" as const, content: `Ask ONLY for these missing fields: ${missing.join(", ")}. Be concise.` },
+                                {
+                                    role: "user" as const,
+                                    content: `Ask ONLY for these missing fields: ${missing.join(", ")}. Be concise.`,
+                                },
                             ].slice(-this.maxHistory);
-                            await this.ai.streamCasual(steerHistory, (token: string) => {
-                                assistantText += token;
-                                this.socket.emit("chat:stream", { token });
-                            });
-                            this.socket.emit("chat:stream:end", { ok: true });
-                            if (assistantText.trim()) {
-                                this.history.push({ role: "assistant", content: assistantText });
-                                if (this.history.length > this.maxHistory) {
-                                    this.history = this.history.slice(-this.maxHistory);
-                                }
-                            }
+
+                            await this.streamAssistant(steerHistory);
                         } else {
                             const id = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+
                             this.pendingActions.set(id, parsed);
                             this.socket.emit("chat:action:request", { id, data: parsed });
-                            // Optionally keep a short assistant message in history
+
                             if (parsed?.assistant_message) {
-                                this.history.push({ role: "assistant", content: parsed.assistant_message as string });
-                                if (this.history.length > this.maxHistory) {
-                                    this.history = this.history.slice(-this.maxHistory);
-                                }
+                                this.pushAssistantMessage(parsed.assistant_message as string);
                             }
                         }
                     } catch {
-                        // Fallback to casual stream if JSON can't be parsed
-                        this.socket.emit("chat:stream:start", { ok: true });
-                        let assistantText = "";
-                        await this.ai.streamCasual(this.history, (token: string) => {
-                            assistantText += token;
-                            this.socket.emit("chat:stream", { token });
-                        });
-                        this.socket.emit("chat:stream:end", { ok: true });
-                        if (assistantText.trim()) {
-                            this.history.push({ role: "assistant", content: assistantText });
-                            if (this.history.length > this.maxHistory) {
-                                this.history = this.history.slice(-this.maxHistory);
-                            }
-                        }
+                        await this.streamAssistant();
                     }
+                } else if (
+                    route.intent === "missing_parameters" &&
+                    Array.isArray(route.missing_parameters) &&
+                    route.missing_parameters.length > 0
+                ) {
+                    await this.askForMissingParameters(route.missing_parameters);
                 } else {
-                    // Casual streaming reply
-                    this.socket.emit("chat:stream:start", { ok: true });
-                    let assistantText = "";
-                    await this.ai.streamCasual(this.history, (token: string) => {
-                        assistantText += token;
-                        this.socket.emit("chat:stream", { token });
-                    });
-                    this.socket.emit("chat:stream:end", { ok: true });
-                    if (assistantText.trim()) {
-                        this.history.push({ role: "assistant", content: assistantText });
-                        if (this.history.length > this.maxHistory) {
-                            this.history = this.history.slice(-this.maxHistory);
-                        }
-                    }
+                    await this.streamAssistant();
                 }
             } catch (e) {
                 console.error(e);
@@ -167,5 +139,90 @@ export class AgentListener extends SocketListener {
                 this.isStreaming = false;
             }
         });
+    }
+
+    private resetActionMemory() {
+        this.currentActionMemory = { intent: null, params: {} };
+    }
+
+    private mergeActionMemory(intent: string, parsed: Record<string, unknown>) {
+        // If intent changes, reset memory
+        if (this.currentActionMemory.intent && this.currentActionMemory.intent !== intent) {
+            this.resetActionMemory();
+        }
+        this.currentActionMemory.intent = intent;
+
+        // Keep only meaningful fields and non-null/defined values
+        const ignore = new Set(["intent", "assistant_message", "missing_parameters"]);
+        const nextParams: Record<string, unknown> = { ...this.currentActionMemory.params };
+        for (const [key, value] of Object.entries(parsed || {})) {
+            if (ignore.has(key)) continue;
+            if (value !== null && value !== undefined && value !== "") {
+                nextParams[key] = value;
+            }
+        }
+        this.currentActionMemory.params = nextParams;
+        console.log("[AI] memory", { intent: this.currentActionMemory.intent, params: this.currentActionMemory.params });
+    }
+
+    private pushUserMessage(content: string) {
+        this.history.push({ role: "user", content });
+        console.log("[AI] pushUserMessage", { length: this.history.length, content });
+        this.trimHistory();
+    }
+
+    private pushAssistantMessage(content: string) {
+        const trimmed = content?.trim();
+        if (!trimmed) return;
+        this.history.push({ role: "assistant", content: trimmed });
+        console.log("[AI] pushAssistantMessage", { length: this.history.length, content: trimmed });
+        this.trimHistory();
+    }
+
+    private trimHistory() {
+        if (this.history.length > this.maxHistory) {
+            this.history = this.history.slice(-this.maxHistory);
+        }
+    }
+
+    private async streamAssistant(history: ChatMessage[] = this.history) {
+        this.socket.emit("chat:stream:start", { ok: true });
+        let assistantText = "";
+        await this.ai.streamCasual(history, (token: string) => {
+            assistantText += token;
+            this.socket.emit("chat:stream", { token });
+        });
+        this.socket.emit("chat:stream:end", { ok: true });
+        this.pushAssistantMessage(assistantText);
+    }
+
+    private async askForMissingParameters(fields: string[]) {
+        console.log("[AI] missing_parameters", { fields, history: this.history.length });
+        const instruction = `Ask the user, in plain language, to provide the following fields: ${fields.join(
+            ", ",
+        )}. Be concise and ask only for these fields.`;
+        const steerHistory: ChatMessage[] = [
+            ...this.history,
+            { role: "user" as const, content: instruction },
+        ].slice(-this.maxHistory);
+        await this.streamAssistant(steerHistory);
+    }
+
+    private async executeAction(id: string, action: any) {
+        const result = await this.mcp.execute(action.intent, action, {
+            id,
+            ai: this.ai,
+            userId: this.socket.user?.id,
+            history: this.history,
+            maxHistory: this.maxHistory,
+        });
+
+        if (!result) {
+            this.socket.emit("chat:action", { id, data: action });
+            return;
+        }
+
+        this.socket.emit(result.event, result.payload);
+        if (result.assistantMessage) this.pushAssistantMessage(result.assistantMessage);
     }
 }
