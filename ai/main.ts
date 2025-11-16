@@ -3,7 +3,7 @@ import type Groq from "groq-sdk";
 import * as readline from "readline";
 import { ContactManager } from "./contacts";
 import { TransactionTracker } from "./transaction-tracker";
-import { SYSTEM_PROMPT } from "./prompt";
+import { OPTIMIZED_SYSTEM_PROMPT } from "./prompt";
 import {
   Message,
   AssistantResponse,
@@ -106,7 +106,9 @@ async function main(): Promise<void> {
   const contactManager = new ContactManager();
   const transactionTracker = new TransactionTracker();
 
-  const history: Message[] = [{ role: "system", content: SYSTEM_PROMPT }];
+  const history: Message[] = [
+    { role: "system", content: OPTIMIZED_SYSTEM_PROMPT },
+  ];
 
   console.log("✅ Banking Assistant with Contact Management is ready.");
   console.log("Type your banking requests/questions.");
