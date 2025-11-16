@@ -15,15 +15,15 @@ export default function LoginPage() {
                 </div>
 
                 <div className="mt-6 text-center space-x-4 text-sm">
-                    <button className="text-white/50 hover:text-[#FFD700] transition-colors">
+                    <button className="text-white/50 hover:text-gold transition-colors">
                         Privacy Policy
                     </button>
                     <span className="text-white/30">•</span>
-                    <button className="text-white/50 hover:text-[#FFD700] transition-colors">
+                    <button className="text-white/50 hover:text-gold transition-colors">
                         Terms of Service
                     </button>
                     <span className="text-white/30">•</span>
-                    <button className="text-white/50 hover:text-[#FFD700] transition-colors">
+                    <button className="text-white/50 hover:text-gold transition-colors">
                         Help
                     </button>
                 </div>

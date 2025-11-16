@@ -13,6 +13,7 @@ export class AgentListener extends SocketListener {
     private currentActionMemory: { intent: string | null; params: Record<string, unknown> };
     private cachedContacts: Array<{ alias: string; name?: string; iban: string }> | null;
     private proposedContactKeys: Set<string>;
+    private proposedAccountListKeys: Set<string>;
 
     constructor(io: any, socket: any) {
         super(io, socket);
@@ -24,6 +25,7 @@ export class AgentListener extends SocketListener {
         this.currentActionMemory = { intent: null, params: {} };
         this.cachedContacts = null;
         this.proposedContactKeys = new Set();
+        this.proposedAccountListKeys = new Set();
     }
 
     listen() {
@@ -62,6 +64,7 @@ export class AgentListener extends SocketListener {
             this.resetActionMemory();
             this.cachedContacts = null;
             this.proposedContactKeys.clear();
+            this.proposedAccountListKeys.clear();
         });
 
         this.socket.on("chat:message", async (data: string) => {
@@ -109,6 +112,9 @@ export class AgentListener extends SocketListener {
 
                         // Propose saving a contact as soon as alias+IBAN are present, even if transfer is incomplete
                         await this.maybeProposeSaveContact(parsed, contacts);
+
+                        // If user referenced account by type (e.g., "savings account") but not IBAN, list accounts and auto-fill
+                        await this.maybeListAccountsForSelection(parsed);
 
                         if (
                             missing.length > 0 ||
@@ -168,6 +174,7 @@ export class AgentListener extends SocketListener {
 
     private resetActionMemory() {
         this.currentActionMemory = { intent: null, params: {} };
+        this.proposedAccountListKeys.clear();
     }
 
     private mergeActionMemory(intent: string, parsed: Record<string, unknown>) {
@@ -291,6 +298,81 @@ export class AgentListener extends SocketListener {
             }
         } catch (e) {
             console.error("[AI] maybeProposeSaveContact failed", e);
+        }
+    }
+
+    private detectAccountPreferenceFromText(text: string | undefined): { type?: "savings" | "checking" | "credit"; currency?: "PLN" | "EUR" | "USD" } {
+        if (!text) return {};
+        const lower = text.toLowerCase();
+        let type: "savings" | "checking" | "credit" | undefined;
+        if (/\bsavings?\b/.test(lower)) type = "savings";
+        else if (/\bchecking\b/.test(lower)) type = "checking";
+        else if (/\bcredit\b/.test(lower)) type = "credit";
+
+        let currency: "PLN" | "EUR" | "USD" | undefined;
+        if (/\bpln\b|\bzł|\bzloty/.test(lower)) currency = "PLN";
+        else if (/\beur\b|\beuro/.test(lower)) currency = "EUR";
+        else if (/\busd\b|\bdollar|\$\b/.test(lower)) currency = "USD";
+
+        return { type, currency };
+    }
+
+    private async maybeListAccountsForSelection(parsed: any) {
+        try {
+            if (parsed?.intent !== "transfer_money") return;
+            const lastUser = [...this.history].reverse().find(m => m.role === "user");
+            const { type: prefType, currency: prefCurrency } = this.detectAccountPreferenceFromText(lastUser?.content);
+            if (!prefType && !prefCurrency) return;
+
+            const userId = this.socket.user?.id as string | undefined;
+            if (!userId) return;
+
+            const missing: string[] = Array.isArray(parsed?.missing_parameters) ? parsed.missing_parameters : [];
+
+            // Determine which field we try to resolve
+            const needFrom = missing.includes("from_account");
+            const needTo = parsed?.transfer_type === "internal" && missing.includes("to_account");
+            if (!needFrom && !needTo) return;
+
+            const field = needFrom ? "from_account" : "to_account";
+            const key = `${userId}|${field}|${prefType || "any"}|${prefCurrency || "any"}`;
+            if (this.proposedAccountListKeys.has(key)) return;
+            this.proposedAccountListKeys.add(key);
+
+            // List accounts via MCP (also emits account list to UI)
+            const result = await this.mcp.execute("show_accounts", { intent: "show_accounts" }, {
+                id: `list-${Date.now()}`,
+                ai: this.ai,
+                userId,
+                history: this.history,
+                maxHistory: this.maxHistory,
+            });
+            if (result) {
+                this.socket.emit(result.event, result.payload);
+                if (result.assistantMessage) this.pushAssistantMessage(result.assistantMessage);
+            }
+
+            // Try to auto-fill the IBAN based on preference
+            const accounts: Array<{ iban: string; currency: string; type?: string }> =
+                (result?.payload?.data?.accounts as any[]) || [];
+
+            const desiredCurrency: string | undefined =
+                prefCurrency || (typeof parsed?.currency === "string" ? parsed.currency : undefined);
+
+            const matches = accounts.filter(acc => {
+                const typeOk = prefType ? acc.type === prefType : true;
+                const currencyOk = desiredCurrency ? acc.currency === desiredCurrency : true;
+                return typeOk && currencyOk;
+            });
+
+            const chosen = matches[0] || accounts.find(a => (prefType ? a.type === prefType : true));
+            if (chosen?.iban) {
+                this.currentActionMemory.params[field] = chosen.iban;
+                // Also update parsed structure in-case subsequent logic depends on it
+                parsed[field] = chosen.iban;
+            }
+        } catch (e) {
+            console.error("[AI] maybeListAccountsForSelection failed", e);
         }
     }
 }

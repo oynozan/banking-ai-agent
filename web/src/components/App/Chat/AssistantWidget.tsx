@@ -24,11 +24,88 @@ export function AssistantWidget() {
     const inputRef = useRef<HTMLInputElement | null>(null);
     const chatBodyRef = useRef<HTMLDivElement | null>(null);
     const speechRecRef = useRef<any>(null);
+    const audioRef = useRef<HTMLAudioElement | null>(null);
+    const lastMessageIndexRef = useRef<number>(-1);
+    const pendingAutoPlayRef = useRef<number | null>(null);
 
     const [messages, setMessages] = useState<ChatItem[]>([]);
     const [isSending, setIsSending] = useState<boolean>(false);
     const [isListening, setIsListening] = useState<boolean>(false);
     const [speechReady, setSpeechReady] = useState<boolean>(false);
+    const [playingMessageIndex, setPlayingMessageIndex] = useState<number | null>(null);
+
+    // Initialize audio element
+    useEffect(() => {
+        audioRef.current = new Audio();
+        if (audioRef.current) {
+            audioRef.current.onended = () => {
+                setPlayingMessageIndex(null);
+            };
+            audioRef.current.preload = "auto";
+        }
+        return () => {
+            if (audioRef.current) {
+                audioRef.current.pause();
+                audioRef.current.src = "";
+            }
+        };
+    }, []);
+
+    useEffect(() => {
+        if (messages.length === 0) return;
+        const lastIndex = messages.length - 1;
+
+        if (lastIndex <= lastMessageIndexRef.current) return;
+        const last = messages[lastIndex];
+
+        if (last.kind === "text" && !last.isUser) {
+            pendingAutoPlayRef.current = lastIndex;
+        } else {
+            lastMessageIndexRef.current = lastIndex;
+            pendingAutoPlayRef.current = null;
+        }
+    }, [messages]);
+
+    // Play TTS for a message
+    const playMessage = async (text: string, messageIndex: number) => {
+        const trimmed = (text || "").trim();
+        if (!trimmed) return;
+        try {
+            if (audioRef.current) {
+                audioRef.current.pause();
+                audioRef.current.currentTime = 0;
+            }
+            setPlayingMessageIndex(messageIndex);
+            const response = await fetch("/api/tts", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ text: trimmed }),
+            });
+            if (!response.ok) throw new Error("TTS generation failed");
+            const audioBlob = await response.blob();
+            const audioUrl = URL.createObjectURL(audioBlob);
+            if (audioRef.current) {
+                audioRef.current.src = audioUrl;
+                await new Promise<void>((resolve, reject) => {
+                    if (!audioRef.current) return reject(new Error("Audio element not available"));
+                    audioRef.current.onloadeddata = () => resolve();
+                    audioRef.current.onerror = () => reject(new Error("Audio loading failed"));
+                });
+                await audioRef.current.play();
+            }
+        } catch (e) {
+            console.error("Error playing TTS:", e);
+            setPlayingMessageIndex(null);
+        }
+    };
+
+    const stopMessage = () => {
+        if (audioRef.current) {
+            audioRef.current.pause();
+            audioRef.current.currentTime = 0;
+        }
+        setPlayingMessageIndex(null);
+    };
 
     // Initialize speech recognition
     useEffect(() => {
@@ -121,6 +198,24 @@ export function AssistantWidget() {
 
         const handleStreamEnd = () => {
             setIsSending(false);
+            // After stream completes, auto-play last assistant text if pending
+            setTimeout(() => {
+                if (pendingAutoPlayRef.current !== null) {
+                    const indexToPlay = pendingAutoPlayRef.current;
+                    setMessages(current => {
+                        const msg = current[indexToPlay];
+                        if (msg && msg.kind === "text" && !msg.isUser && (msg.text || "").trim()) {
+                            lastMessageIndexRef.current = indexToPlay;
+                            // Play after state settled
+                            requestAnimationFrame(() => {
+                                playMessage(msg.text, indexToPlay);
+                            });
+                        }
+                        return current;
+                    });
+                    pendingAutoPlayRef.current = null;
+                }
+            }, 100);
         };
 
         const handleError = ({ message }: { message: string }) => {
@@ -232,6 +327,10 @@ export function AssistantWidget() {
                 console.error('Error stopping speech:', e);
             }
         }
+        // Stop any currently playing TTS when sending a new message
+        if (playingMessageIndex !== null) {
+            stopMessage();
+        }
     };
 
     return (
@@ -275,9 +374,24 @@ export function AssistantWidget() {
                     )}
                     {messages.map((m, i) =>
                         m.kind === "text" ? (
-                            <Message key={i} message={m.text} isUser={m.isUser} />
+                            <Message
+                                key={i}
+                                message={m.text}
+                                isUser={m.isUser}
+                                isPlaying={playingMessageIndex === i}
+                                onPlay={() => playMessage(m.text, i)}
+                                onStop={stopMessage}
+                            />
                         ) : (
-                            <Action key={m.id} id={m.id} text={m.text} status={m.status} />
+                            <Action
+                                key={m.id}
+                                id={m.id}
+                                text={m.text}
+                                status={m.status}
+                                isPlaying={playingMessageIndex === i}
+                                onPlay={() => playMessage(m.text, i)}
+                                onStop={stopMessage}
+                            />
                         ),
                     )}
                 </div>
