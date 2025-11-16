@@ -10,3 +10,18 @@ export const authHeaderSchema = z.object({
         .string()
         .regex(/^Bearer\s+.+$/i, "Invalid Authorization header format (expected Bearer token)"),
 });
+
+export const walletVerifySchema = z.object({
+    address: z
+        .string()
+        .regex(/^0x[a-fA-F0-9]{40}$/, "Invalid wallet address format"),
+    signature: z
+        .string()
+        .regex(/^0x[0-9a-fA-F]+$/, "Invalid signature format"),
+});
+
+export const walletAddressSchema = z.object({
+    address: z
+        .string()
+        .regex(/^0x[a-fA-F0-9]{40}$/, "Invalid wallet address format"),
+});

@@ -3,11 +3,7 @@ import type { ChatMessage } from "./ai";
 
 import UserLib from "./modules/user";
 import AccountLib from "./modules/account";
-import {
-    internalTransfer,
-    externalTransfer,
-    listUserAccounts,
-} from "./modules/transfer";
+import { internalTransfer, externalTransfer, listUserAccounts } from "./modules/transfer";
 import ContactLib from "./modules/contacts";
 
 export type MCPContext = {
@@ -49,7 +45,11 @@ export class MCP {
         }
 
         const balance = await UserLib.getBalanceByUserId(userId);
-        const reply = await ai.summarizeAction("check_balance", { balance }, history.slice(-maxHistory));
+        const reply = await ai.summarizeAction(
+            "check_balance",
+            { balance, currency: "PLN" },
+            history.slice(-maxHistory),
+        );
 
         return {
             event: "chat:action",
@@ -70,14 +70,17 @@ export class MCP {
         }
 
         const { name, account_name } = action;
-        
+
         // Support both "name" and "account_name" parameter names
         const accountName = name || account_name;
 
         if (!accountName || typeof accountName !== "string" || accountName.trim().length === 0) {
             return {
                 event: "chat:error",
-                payload: { message: "Account name is required. Please provide the name of the account you want to check." },
+                payload: {
+                    message:
+                        "Account name is required. Please provide the name of the account you want to check.",
+                },
             };
         }
 
@@ -86,7 +89,9 @@ export class MCP {
         if (!accountBalance) {
             return {
                 event: "chat:error",
-                payload: { message: `Account named "${accountName.trim()}" not found. Please check the account name and try again.` },
+                payload: {
+                    message: `Account named "${accountName.trim()}" not found. Please check the account name and try again.`,
+                },
             };
         }
 
@@ -97,7 +102,11 @@ export class MCP {
             iban: accountBalance.iban,
         };
 
-        const reply = await ai.summarizeAction("check_account_balance", result, history.slice(-maxHistory));
+        const reply = await ai.summarizeAction(
+            "check_account_balance",
+            result,
+            history.slice(-maxHistory),
+        );
 
         return {
             event: "chat:action",
@@ -116,14 +125,17 @@ export class MCP {
         }
 
         const { type, currency, name, account_name } = action;
-        
+
         // Support both "name" and "account_name" parameter names
         const accountName = name || account_name;
 
         if (!accountName || typeof accountName !== "string" || accountName.trim().length === 0) {
             return {
                 event: "chat:error",
-                payload: { message: "Account name is required. Please provide a name for the account (e.g., 'Main Savings', 'Emergency Fund')." },
+                payload: {
+                    message:
+                        "Account name is required. Please provide a name for the account (e.g., 'Main Savings', 'Emergency Fund').",
+                },
             };
         }
 
@@ -170,14 +182,17 @@ export class MCP {
         }
 
         const { name, account_name } = action;
-        
+
         // Support both "name" and "account_name" parameter names
         const accountName = name || account_name;
 
         if (!accountName || typeof accountName !== "string" || accountName.trim().length === 0) {
             return {
                 event: "chat:error",
-                payload: { message: "Account name is required. Please provide the name of the account you want to delete." },
+                payload: {
+                    message:
+                        "Account name is required. Please provide the name of the account you want to delete.",
+                },
             };
         }
 
@@ -189,7 +204,9 @@ export class MCP {
         if (!deletedAccount) {
             return {
                 event: "chat:error",
-                payload: { message: `Account named "${accountName.trim()}" not found. Please check the account name and try again.` },
+                payload: {
+                    message: `Account named "${accountName.trim()}" not found. Please check the account name and try again.`,
+                },
             };
         }
 
@@ -200,7 +217,11 @@ export class MCP {
             currency: deletedAccount.currency,
         };
 
-        const reply = await ai.summarizeAction("delete_account", result, history.slice(-maxHistory));
+        const reply = await ai.summarizeAction(
+            "delete_account",
+            result,
+            history.slice(-maxHistory),
+        );
 
         return {
             event: "chat:action",
@@ -236,7 +257,10 @@ export class MCP {
 
         if (transfer_type === "internal") {
             if (!to_account) {
-                return { event: "chat:error", payload: { message: "Missing destination account." } };
+                return {
+                    event: "chat:error",
+                    payload: { message: "Missing destination account." },
+                };
             }
 
             result = await internalTransfer({
@@ -245,10 +269,8 @@ export class MCP {
                 toIban: to_account,
                 amount: amt,
             });
-        }
-
-        else if (transfer_type === "external") {
-            if (!recipient_name || !recipient_value || !category) {
+        } else if (transfer_type === "external") {
+            if (!recipient_value || !category) {
                 return { event: "chat:error", payload: { message: "Missing recipient data." } };
             }
 
@@ -263,7 +285,11 @@ export class MCP {
             });
         }
 
-        const reply = await ai.summarizeAction("transfer_money", result, history.slice(-maxHistory));
+        const reply = await ai.summarizeAction(
+            "transfer_money",
+            result,
+            history.slice(-maxHistory),
+        );
 
         return {
             event: "chat:action",
@@ -287,7 +313,7 @@ export class MCP {
 
         return {
             event: "chat:accounts",
-            payload: { accounts }
+            payload: { accounts },
         };
     }
 
@@ -315,11 +341,7 @@ export class MCP {
         }
 
         const result = { alias: created.alias, name: created.name, iban: created.iban };
-        const reply = await ai.summarizeAction(
-            "add_contact",
-            result,
-            history.slice(-maxHistory)
-        );
+        const reply = await ai.summarizeAction("add_contact", result, history.slice(-maxHistory));
 
         return {
             event: "chat:action",

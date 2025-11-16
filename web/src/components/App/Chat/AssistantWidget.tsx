@@ -2,7 +2,7 @@
 "use client";
 
 import clsx from "clsx";
-import { SendHorizonal, Mic, MicOff } from "lucide-react";
+import { SendHorizonal, Mic, MicOff, Loader2 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
 import Action from "./Action";
@@ -13,15 +13,11 @@ import WidgetHeader from "./WidgetHeader";
 import { useAssistantStore } from "@/lib/states";
 
 import "./chat.scss";
+import { Button } from "@/components/ui/button";
 
 type ChatItem =
     | { kind: "text"; isUser: boolean; text: string }
-    | { kind: "action"; id: string; text: string; status: "pending" | "accepted" | "cancelled" }
-    | {
-          kind: "suggestions";
-          field: string;
-          options: Array<{ label: string; value: string }>;
-      };
+    | { kind: "action"; id: string; text: string; status: "pending" | "accepted" | "cancelled" };
 
 export function AssistantWidget() {
     const { isOpen, toggle, isFullScreen, toggleFullScreen } = useAssistantStore();
@@ -74,73 +70,63 @@ export function AssistantWidget() {
     useEffect(() => {
         audioRef.current = new Audio();
         if (audioRef.current) {
-            audioRef.current.onended = () => setPlayingMessageIndex(null);
+            audioRef.current.onended = () => {
+                setPlayingMessageIndex(null);
+            };
+            audioRef.current.preload = "auto";
         }
+        return () => {
+            if (audioRef.current) {
+                audioRef.current.pause();
+                audioRef.current.src = "";
+            }
+        };
     }, []);
 
-    // AUTOSCROLL
     useEffect(() => {
-        chatBodyRef.current?.scrollTo({
-            top: chatBodyRef.current.scrollHeight,
-            behavior: "smooth",
-        });
+        if (messages.length === 0) return;
+        const lastIndex = messages.length - 1;
+
+        if (lastIndex <= lastMessageIndexRef.current) return;
+        const last = messages[lastIndex];
+
+        if (last.kind === "text" && !last.isUser) {
+            pendingAutoPlayRef.current = lastIndex;
+        } else {
+            lastMessageIndexRef.current = lastIndex;
+            pendingAutoPlayRef.current = null;
+        }
     }, [messages]);
 
-    // SPEECH RECOGNITION
-    useEffect(() => {
-        const check = setInterval(() => {
-            if (window?.p5 && (window.p5 as any).SpeechRec) {
-                clearInterval(check);
-                speechRecRef.current = new (window.p5 as any).SpeechRec("en-US", () => {
-                    if (speechRecRef.current?.resultValue && inputRef.current) {
-                        inputRef.current.value = speechRecRef.current.resultString;
-                    }
-                });
-                setSpeechReady(true);
-            }
-        }, 100);
-
-        return () => clearInterval(check);
-    }, []);
-
-    const toggleSpeechRecognition = () => {
-        if (!speechRecRef.current) return;
-
-        if (isListening) {
-            speechRecRef.current.stop();
-            setIsListening(false);
-        } else {
-            speechRecRef.current.start(true, false);
-            setIsListening(true);
-        }
-    };
-
-    // PLAY TTS
-    const playMessage = async (text: string, index: number) => {
-        const trimmed = text.trim();
+    // Play TTS for a message
+    const playMessage = async (text: string, messageIndex: number) => {
+        const trimmed = (text || "").trim();
         if (!trimmed) return;
-
         try {
             if (audioRef.current) {
                 audioRef.current.pause();
                 audioRef.current.currentTime = 0;
             }
-
-            setPlayingMessageIndex(index);
-
-            const resp = await fetch("/api/tts", {
+            setPlayingMessageIndex(messageIndex);
+            const response = await fetch("/api/tts", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ text: trimmed }),
             });
-
-            const blob = await resp.blob();
-            const url = URL.createObjectURL(blob);
-
-            audioRef.current!.src = url;
-            await audioRef.current!.play();
-        } catch (err) {
-            console.error("TTS error", err);
+            if (!response.ok) throw new Error("TTS generation failed");
+            const audioBlob = await response.blob();
+            const audioUrl = URL.createObjectURL(audioBlob);
+            if (audioRef.current) {
+                audioRef.current.src = audioUrl;
+                await new Promise<void>((resolve, reject) => {
+                    if (!audioRef.current) return reject(new Error("Audio element not available"));
+                    audioRef.current.onloadeddata = () => resolve();
+                    audioRef.current.onerror = () => reject(new Error("Audio loading failed"));
+                });
+                await audioRef.current.play();
+            }
+        } catch (e) {
+            console.error("Error playing TTS:", e);
             setPlayingMessageIndex(null);
         }
     };
@@ -157,11 +143,74 @@ export function AssistantWidget() {
         setPlayingMessageIndex(null);
     };
 
-    // SOCKET LISTENERS
+    // Initialize speech recognition
+    useEffect(() => {
+        // Wait for p5.speech to load
+        const checkP5Speech = setInterval(() => {
+            if (typeof window !== "undefined" && window.p5 && (window.p5 as any).SpeechRec) {
+                clearInterval(checkP5Speech);
+                initializeSpeech();
+            }
+        }, 100);
+
+        const initializeSpeech = () => {
+            try {
+                const gotSpeech = () => {
+                    if (speechRecRef.current && speechRecRef.current.resultValue) {
+                        const said = speechRecRef.current.resultString;
+                        if (said && inputRef.current) {
+                            inputRef.current.value = said;
+                        }
+                    }
+                };
+
+                // Create new p5.SpeechRec instance
+                speechRecRef.current = new (window.p5 as any).SpeechRec("en-US", gotSpeech);
+                setSpeechReady(true);
+                console.log("Speech recognition initialized");
+            } catch (error) {
+                console.error("Error initializing speech recognition:", error);
+            }
+        };
+
+        // Cleanup
+        return () => {
+            clearInterval(checkP5Speech);
+            if (speechRecRef.current) {
+                try {
+                    speechRecRef.current.stop();
+                } catch (e) {
+                    console.error("Error stopping speech recognition:", e);
+                }
+            }
+        };
+    }, []);
+
+    // Toggle speech recognition
+    const toggleSpeechRecognition = () => {
+        if (!speechRecRef.current) return;
+
+        try {
+            if (isListening) {
+                speechRecRef.current.stop();
+                setIsListening(false);
+                console.log("Stopped listening");
+            } else {
+                const continuous = true;
+                const interimResults = false;
+                speechRecRef.current.start(continuous, interimResults);
+                setIsListening(true);
+                console.log("Started listening");
+            }
+        } catch (error) {
+            console.error("Error toggling speech recognition:", error);
+            setIsListening(false);
+        }
+    };
+
     useEffect(() => {
         const handleStreamStart = () => {
             setIsSending(true);
-            isSendingRef.current = true;
             setMessages(prev => [...prev, { kind: "text", isUser: false, text: "" }]);
         };
 
@@ -173,7 +222,6 @@ export function AssistantWidget() {
                 if (last?.kind === "text" && !last.isUser) {
                     next[next.length - 1] = { ...last, text: last.text + token };
                 }
-
                 return next;
             });
         };
@@ -226,11 +274,12 @@ export function AssistantWidget() {
         const handleActionRequest = ({ id, data }: any) => {
             setMessages(prev => [
                 ...prev,
-                { kind: "action", id, text: data.assistant_message, status: "pending" },
+                { kind: "action", id, text: assistantMessage, status: "pending" },
             ]);
+            setIsSending(false);
         };
 
-        const handleActionCancelled = ({ id }: any) => {
+        const handleActionCancelled = ({ id }: { id: string }) => {
             setMessages(prev =>
                 prev.map(m =>
                     m.kind === "action" && m.id === id
@@ -307,6 +356,7 @@ export function AssistantWidget() {
         socket.on("chat:stream:start", handleStreamStart);
         socket.on("chat:stream", handleStream);
         socket.on("chat:stream:end", handleStreamEnd);
+        socket.on("chat:error", handleError);
         socket.on("chat:action", handleAction);
         socket.on("chat:action:request", handleActionRequest);
         socket.on("chat:action:cancelled", handleActionCancelled);
@@ -319,6 +369,7 @@ export function AssistantWidget() {
             socket.off("chat:stream:start", handleStreamStart);
             socket.off("chat:stream", handleStream);
             socket.off("chat:stream:end", handleStreamEnd);
+            socket.off("chat:error", handleError);
             socket.off("chat:action", handleAction);
             socket.off("chat:action:request", handleActionRequest);
             socket.off("chat:action:cancelled", handleActionCancelled);
@@ -346,11 +397,14 @@ export function AssistantWidget() {
         e.preventDefault();
         if (isSending) return;
 
-        const fd = new FormData(e.target as HTMLFormElement);
-        const msg = fd.get("message")!.toString().trim();
-        if (!msg) return;
+            const formData = new FormData(e.target as HTMLFormElement);
+            message = (formData.get("message") as string)?.toString()?.trim();
+            (e.target as HTMLFormElement).reset();
+        } else {
+            message = text!.trim();
+        }
 
-        setMessages(prev => [...prev, { kind: "text", isUser: true, text: msg }]);
+        setMessages(prev => [...prev, { kind: "text", isUser: true, text: message! }]);
         setIsSending(true);
 
         socket.emit("chat:message", msg);
@@ -362,24 +416,28 @@ export function AssistantWidget() {
             id="chat"
             className={clsx(
                 "fixed z-50",
-                isFullScreen ? "chat-screen-full top-0 left-0 w-screen h-screen" : "-bottom-10 right-4"
+                isFullScreen
+                    ? "chat-screen-full top-0 left-0 w-screen h-screen"
+                    : "-bottom-10 right-4",
             )}
         >
+            {/* CHAT WINDOW */}
             <div
                 className={clsx(
                     "flex flex-col shadow-xl overflow-hidden text-white",
                     isFullScreen
                         ? "w-full h-full rounded-none"
                         : "w-120 h-[min(900px,calc(100vh-32px))] rounded-xl border-border border",
-                    isOpen ? "block" : "hidden"
+                    isOpen ? "block" : "hidden",
                 )}
             >
+                {/* Header */}
                 <WidgetHeader
                     toggleFullScreen={toggleFullScreen}
                     isFullScreen={isFullScreen}
                     toggle={toggle}
                     autoPlayEnabled={autoPlayEnabled}
-                    toggleAutoPlay={() => setAutoPlayEnabled(v => !v)}
+                    toggleAutoPlay={() => setAutoPlayEnabled(prev => !prev)}
                 />
 
                 {/* CHAT BODY */}
@@ -426,39 +484,53 @@ export function AssistantWidget() {
                     ))}
                 </div>
 
-                {/* INPUT */}
-                <div className="bg-card relative h-16 flex items-center">
-                    <form onSubmit={handleSubmit} className="flex items-center gap-2 w-full px-3">
+                {/* Chat Input */}
+                <div className="bg-card relative">
+                    <form onSubmit={e => handleSubmit(e)} className="flex items-center gap-2">
                         <input
                             ref={inputRef}
+                            autoFocus={isFullScreen}
                             type="text"
                             name="message"
-                            placeholder="Type or speak..."
-                            className="flex-1 p-4 pr-24 bg-card rounded-xl text-white"
+                            placeholder="Type your message or use voice..."
+                            className="flex-1 p-4 pr-24 bg-card rounded-xl rounded-t-none text-white placeholder:text-gray-500 outline-none!"
                             disabled={isSending}
                         />
 
-                        {/* MIC */}
+                        {/* Microphone Button */}
                         {speechReady && (
                             <button
                                 type="button"
                                 onClick={toggleSpeechRecognition}
                                 className={clsx(
-                                    "absolute right-14 top-1/2 -translate-y-1/2 p-2 rounded-lg",
-                                    isListening ? "bg-red-500 text-white" : "text-gray-400 hover:text-gold"
+                                    "absolute right-14 top-1/2 -translate-y-1/2 p-2 rounded-lg transition-colors",
+                                    isListening
+                                        ? "bg-red-500 text-white animate-pulse"
+                                        : "bg-transparent text-gray-400 hover:text-gold",
                                 )}
+                                disabled={isSending}
+                                aria-label={isListening ? "Stop voice input" : "Start voice input"}
                             >
-                                {isListening ? <MicOff /> : <Mic />}
+                                {isListening ? (
+                                    <MicOff className="w-5 h-5" />
+                                ) : (
+                                    <Mic className="w-5 h-5" />
+                                )}
                             </button>
                         )}
 
-                        {/* SEND */}
+                        {/* Send Button */}
                         <button
                             type="submit"
-                            className="absolute right-3 top-1/2 -translate-y-1/2 p-2 text-gold"
+                            className="absolute right-2 top-1/2 -translate-y-1/2 p-2 rounded-lg bg-transparent text-gold"
                             disabled={isSending}
+                            aria-label="Send message"
                         >
-                            <SendHorizonal className="w-5 h-5" />
+                            {isSending ? (
+                                <Loader2 className="w-5 h-5 animate-spin" />
+                            ) : (
+                                <SendHorizonal className="w-5 h-5" />
+                            )}
                         </button>
                     </form>
                 </div>
@@ -468,3 +540,4 @@ export function AssistantWidget() {
         </div>
     );
 }
+

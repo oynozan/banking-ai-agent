@@ -1,8 +1,11 @@
+import Script from "next/script";
 import type { Metadata } from "next";
 import { Inter, Noto_Sans } from "next/font/google";
-import Script from 'next/script'
-import "@/styles/globals.css";
+
 import { AssistantWidget } from "@/components/App/Chat/AssistantWidget";
+import { Wallet } from "@/components/Wallet";
+
+import "@/styles/globals.css";
 
 const inter = Inter({
     subsets: ["latin"],
@@ -30,21 +33,22 @@ export default function RootLayout({
         <html lang="en">
             <head>
                 {/* Load p5.js first */}
-                <Script 
-                    src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.7.0/p5.min.js" 
+                <Script
+                    src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.7.0/p5.min.js"
                     strategy="beforeInteractive"
                 />
                 {/* Then load p5.speech */}
-                <Script 
-                    src="https://cdn.jsdelivr.net/gh/IDMNYU/p5.js-speech@0.0.3/lib/p5.speech.js" 
+                <Script
+                    src="https://cdn.jsdelivr.net/gh/IDMNYU/p5.js-speech@0.0.3/lib/p5.speech.js"
                     strategy="beforeInteractive"
                 />
             </head>
             <body className={`${inter.variable} ${notoSans.variable} antialiased`}>
-                {children}
-                <AssistantWidget />
+                <Wallet>
+                    {children}
+                    <AssistantWidget />
+                </Wallet>
             </body>
         </html>
     );
 }
-

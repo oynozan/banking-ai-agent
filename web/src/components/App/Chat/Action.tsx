@@ -74,8 +74,10 @@ export default function Action({ id, text, status, isPlaying, onPlay, onStop }: 
 	);
 }
 const SafeTextWithBreaks = ({ text }: { text: string }) => {
-	const normalized = useMemo(() => text.replace(/\\n/g, "\n"), [text]);
-	const lines = useMemo(() => normalized.split(/\r?\n/g), [normalized]);
+	const normalized = useMemo(() => text?.replace(/\\n/g, "\n"), [text]);
+	const lines = useMemo(() => normalized?.split(/\r?\n/g), [normalized]);
+
+	if (!text) return null;
 
 	return (
 		<>
