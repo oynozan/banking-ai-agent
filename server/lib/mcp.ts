@@ -33,6 +33,7 @@ export class MCP {
         transfer_money: this.handleTransferMoney.bind(this),
         show_accounts: this.handleShowAccounts.bind(this),
         add_contact: this.handleAddContact.bind(this),
+        delete_account: this.handleDeleteAccount.bind(this),
     };
 
     async execute(intent: string, action: any, ctx: MCPContext): Promise<MCPResult | null> {
@@ -103,6 +104,55 @@ export class MCP {
         };
 
         const reply = await ai.summarizeAction("open_account", result, history.slice(-maxHistory));
+
+        return {
+            event: "chat:action",
+            payload: { id, data: { ...action, result, assistant_message: reply } },
+            assistantMessage: reply,
+        };
+    }
+
+    private async handleDeleteAccount(action: any, ctx: MCPContext): Promise<MCPResult> {
+        const { userId, ai, history, maxHistory, id } = ctx;
+        if (!userId) {
+            return {
+                event: "chat:error",
+                payload: { message: "You must be logged in to delete an account" },
+            };
+        }
+
+        const { name, account_name } = action;
+        
+        // Support both "name" and "account_name" parameter names
+        const accountName = name || account_name;
+
+        if (!accountName || typeof accountName !== "string" || accountName.trim().length === 0) {
+            return {
+                event: "chat:error",
+                payload: { message: "Account name is required. Please provide the name of the account you want to delete." },
+            };
+        }
+
+        const deletedAccount = await AccountLib.deleteAccount({
+            userId,
+            name: accountName.trim(),
+        });
+
+        if (!deletedAccount) {
+            return {
+                event: "chat:error",
+                payload: { message: `Account named "${accountName.trim()}" not found. Please check the account name and try again.` },
+            };
+        }
+
+        const result = {
+            iban: deletedAccount.iban,
+            name: deletedAccount.name,
+            type: deletedAccount.type,
+            currency: deletedAccount.currency,
+        };
+
+        const reply = await ai.summarizeAction("delete_account", result, history.slice(-maxHistory));
 
         return {
             event: "chat:action",

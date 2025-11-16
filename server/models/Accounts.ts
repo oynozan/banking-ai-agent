@@ -28,9 +28,9 @@ const AccountSchema = new Schema<IAccount>(
         currency: { type: String, enum: ["USD", "EUR", "PLN"], required: true },
         createdAt: { type: Date, required: true, default: Date.now },
     },
-    { versionKey: false },
+    { versionKey: false, collection: "accounts" },
 );
 
-const User: Model<IAccount> =
+const Accounts: Model<IAccount> =
     mongoose.models.Account || mongoose.model<IAccount>("Account", AccountSchema);
-export default User;
+export default Accounts;

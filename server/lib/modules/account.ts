@@ -55,6 +55,55 @@ export default class Account {
             currency,
         });
 
+        // Verify the account was saved to the database
+        const savedAccount = await Accounts.findOne({ iban: newAccount.iban }).lean();
+        if (!savedAccount) {
+            console.error("Failed to verify account save to database:", newAccount.iban);
+            throw new Error("Account creation failed - could not verify save");
+        }
+
         return newAccount.toObject();
+    }
+
+    static async deleteAccount(params: {
+        userId: string;
+        name: string;
+    }) {
+        const { userId, name } = params;
+
+        if (!name || typeof name !== "string" || name.trim().length === 0) {
+            return null;
+        }
+
+        // Find the account by name and user ID
+        const account = await Accounts.findOne({
+            "user.id": userId,
+            name: name.trim(),
+        });
+
+        if (!account) {
+            return null;
+        }
+
+        // Check if account has a balance (optional safety check)
+        // You might want to prevent deletion of accounts with non-zero balance
+        // For now, we'll allow deletion regardless of balance
+
+        // Delete the account
+        await Accounts.deleteOne({ _id: account._id });
+
+        // Verify deletion
+        const deleted = await Accounts.findOne({ _id: account._id }).lean();
+        if (deleted) {
+            console.error("Failed to verify account deletion:", account.iban);
+            throw new Error("Account deletion failed - could not verify deletion");
+        }
+
+        return {
+            iban: account.iban,
+            name: account.name,
+            type: account.type,
+            currency: account.currency,
+        };
     }
 }

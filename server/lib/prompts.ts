@@ -6,6 +6,7 @@ export const ACTION_INTENTS = [
     "add_contact",
     "confirm_alias_match",
     "open_account",
+    "delete_account",
     "show_iban"
 ] as const;
 
@@ -106,6 +107,25 @@ If all are provided:
   "name": "Main Savings",
   "type": "savings",
   "currency": "USD",
+  "missing_parameters": []
+}`,
+
+    delete_account: `
+Required fields:
+- "name": string (account name to delete, e.g., "Main Savings", "Emergency Fund")
+
+If the name is missing:
+{
+  "intent": "delete_account",
+  "assistant_message": "Which account would you like to delete? Please provide the account name.",
+  "missing_parameters": ["name"]
+}
+
+If the name is provided:
+{
+  "intent": "delete_account",
+  "assistant_message": "Are you sure you want to delete the account named 'Main Savings'?",
+  "name": "Main Savings",
   "missing_parameters": []
 }`,
     show_accounts: `
