@@ -33,6 +33,7 @@ export function AssistantWidget() {
     const [isListening, setIsListening] = useState<boolean>(false);
     const [speechReady, setSpeechReady] = useState<boolean>(false);
     const [playingMessageIndex, setPlayingMessageIndex] = useState<number | null>(null);
+    const [autoPlayEnabled, setAutoPlayEnabled] = useState<boolean>(true);
 
     // Initialize audio element
     useEffect(() => {
@@ -198,9 +199,9 @@ export function AssistantWidget() {
 
         const handleStreamEnd = () => {
             setIsSending(false);
-            // After stream completes, auto-play last assistant text if pending
+            // After stream completes, auto-play last assistant text if pending and auto-play is enabled
             setTimeout(() => {
-                if (pendingAutoPlayRef.current !== null) {
+                if (pendingAutoPlayRef.current !== null && autoPlayEnabled) {
                     const indexToPlay = pendingAutoPlayRef.current;
                     setMessages(current => {
                         const msg = current[indexToPlay];
@@ -213,6 +214,10 @@ export function AssistantWidget() {
                         }
                         return current;
                     });
+                    pendingAutoPlayRef.current = null;
+                } else if (pendingAutoPlayRef.current !== null) {
+                    // Just update the ref even if not playing
+                    lastMessageIndexRef.current = pendingAutoPlayRef.current;
                     pendingAutoPlayRef.current = null;
                 }
             }, 100);
@@ -289,7 +294,7 @@ export function AssistantWidget() {
             socket.off("chat:action:request", handleActionRequest);
             socket.off("chat:action:cancelled", handleActionCancelled);
         };
-    }, []);
+    }, [autoPlayEnabled]);
 
     useEffect(() => {
         if (chatBodyRef.current) {
@@ -358,6 +363,8 @@ export function AssistantWidget() {
                     toggleFullScreen={toggleFullScreen}
                     isFullScreen={isFullScreen}
                     toggle={toggle}
+                    autoPlayEnabled={autoPlayEnabled}
+                    toggleAutoPlay={() => setAutoPlayEnabled(prev => !prev)}
                 />
 
                 {/* Chat Body */}

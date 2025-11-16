@@ -1,0 +1,6 @@
+{
+  "dependencies": {
+    "@huggingface/transformers": "^3.7.6",
+    "@moonshine-ai/moonshine-js": "^0.1.29"
+  }
+}
