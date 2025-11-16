@@ -19,20 +19,20 @@ export default function QuickStats({ showBalance, stats }: QuickStatsProps) {
                 <div>
                     <p className="text-gray-400 text-sm mb-1">This Month&apos;s Income</p>
                     <p className="text-gold text-2xl">
-                        {showBalance ? `+${formatCurrency(stats.income)}$` : "••••••"}
+                        {showBalance ? `+${formatCurrency(stats.income)} PLN` : "••••••"}
                     </p>
                 </div>
                 <div>
                     <p className="text-gray-400 text-sm mb-1">This Month&apos;s Expenses</p>
                     <p className="text-white text-2xl">
-                        {showBalance ? `-${formatCurrency(stats.expenses)}$` : "••••••"}
+                        {showBalance ? `-${formatCurrency(stats.expenses)} PLN` : "••••••"}
                     </p>
                 </div>
                 <div className="pt-4 border-t border-gray-700">
                     <p className="text-gray-400 text-sm mb-1">Net Change</p>
                     <p className="text-gold text-2xl">
                         {showBalance
-                            ? `${stats.netChange >= 0 ? "+" : ""}${formatCurrency(stats.netChange)}$`
+                            ? `${stats.netChange >= 0 ? "+" : ""}${formatCurrency(stats.netChange)} PLN`
                             : "••••••"}
                     </p>
                 </div>

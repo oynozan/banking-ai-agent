@@ -1,3 +1,4 @@
+import { usePreferencesStore } from "@/lib/states";
 import { ArrowDownRight, ArrowUpRight } from "lucide-react";
 
 export interface Transaction {
@@ -6,6 +7,7 @@ export interface Transaction {
     merchant: string;
     category: string;
     amount: number;
+    currency: string;
     type: "credit" | "debit";
 }
 
@@ -13,7 +15,21 @@ interface TransactionListProps {
     transactions: Transaction[];
 }
 
+const formatDate = (value: string) => {
+    const parsed = new Date(value);
+    if (Number.isNaN(parsed.getTime())) {
+        return value;
+    }
+
+    return parsed.toLocaleDateString("en-US", {
+        month: "short",
+        day: "numeric",
+    });
+};
+
 export function TransactionList({ transactions }: TransactionListProps) {
+    const { showBalance } = usePreferencesStore();
+
     return (
         <div className="bg-card rounded-sm p-6 border border-gold/30 hover:border-gold/45 transition-all shadow-xl">
             <h2 className="text-xl text-white mb-6">Recent Transactions</h2>
@@ -40,7 +56,7 @@ export function TransactionList({ transactions }: TransactionListProps) {
                             <div>
                                 <p className="text-white">{transaction.merchant}</p>
                                 <p className="text-gray-400 text-sm">
-                                    {transaction.date} • {transaction.category}
+                                    {formatDate(transaction.date)} • {transaction.category}
                                 </p>
                             </div>
                         </div>
@@ -49,11 +65,18 @@ export function TransactionList({ transactions }: TransactionListProps) {
                                 transaction.type === "credit" ? "text-gold" : "text-white"
                             }`}
                         >
-                            {transaction.type === "credit" ? "+" : "-"}$
-                            {Math.abs(transaction.amount).toLocaleString("en-US", {
-                                minimumFractionDigits: 2,
-                                maximumFractionDigits: 2,
-                            })}
+                            {showBalance ? (
+                                <>
+                                    {transaction.type === "credit" ? "+" : "-"}
+                                    {Math.abs(transaction.amount).toLocaleString("en-US", {
+                                        minimumFractionDigits: 2,
+                                        maximumFractionDigits: 2,
+                                    })}{" "}
+                                    {transaction.currency}
+                                </>
+                            ) : (
+                                "••••••"
+                            )}
                         </div>
                     </div>
                 ))}

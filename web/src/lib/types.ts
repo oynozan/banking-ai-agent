@@ -18,6 +18,7 @@ export interface ITransaction {
         receiverType?: AccountTypes;
     };
     amount: number;
+    currency?: string;
     date: Date;
     type: "credit" | "debit" | "internal_transfer" | "external_transfer";
     category: string;

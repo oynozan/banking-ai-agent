@@ -33,7 +33,26 @@ export function AssistantWidget() {
     const [isListening, setIsListening] = useState<boolean>(false);
     const [speechReady, setSpeechReady] = useState<boolean>(false);
     const [playingMessageIndex, setPlayingMessageIndex] = useState<number | null>(null);
-    const [autoPlayEnabled, setAutoPlayEnabled] = useState<boolean>(true);
+    const [autoPlayEnabled, setAutoPlayEnabled] = useState<boolean>(false);
+
+    // Persist autoPlayEnabled in localStorage
+    useEffect(() => {
+        try {
+            const stored = localStorage.getItem("chat:autoPlayEnabled");
+            if (stored !== null) {
+                setAutoPlayEnabled(stored === "1" || stored === "true");
+            }
+        } catch {
+            /* ignore storage errors */
+        }
+    }, []);
+    useEffect(() => {
+        try {
+            localStorage.setItem("chat:autoPlayEnabled", autoPlayEnabled ? "1" : "0");
+        } catch {
+            /* ignore storage errors */
+        }
+    }, [autoPlayEnabled]);
 
     // Initialize audio element
     useEffect(() => {
@@ -370,7 +389,7 @@ export function AssistantWidget() {
                 {/* Chat Body */}
                 <div
                     ref={chatBodyRef}
-                    className={`chat-body flex-1 p-4 overflow-y-auto space-y-4 bg-zinc-50`}
+                    className={`chat-body flex-1 p-4 overflow-y-auto space-y-4 bg-[#f9ecd8]`}
                 >
                     {!messages.length && (
                         <div className="flex justify-center items-center h-full">

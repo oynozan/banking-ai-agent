@@ -32,7 +32,7 @@ export function BalanceCard() {
                 </div>
                 <div className="text-5xl text-[#FFD700] mb-2">
                     {showBalance
-                        ? `$${user.balance.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+                        ? `${user.balance.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} PLN`
                         : "••••••"}
                 </div>
                 <p className="text-gray-400 text-sm">Available Balance</p>
