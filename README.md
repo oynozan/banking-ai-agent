@@ -1,4 +1,5 @@
 # Equi-Finance AI
+**Team**: Turan
 
 ## [Next.js](https://github.com/oynozan/banking-ai-agent/tree/main/web)
 
