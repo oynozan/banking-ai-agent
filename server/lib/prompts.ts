@@ -22,7 +22,8 @@ Response shape:
   "assistant_message": string,
   "missing_parameters": []
 }
-Keep the confirmation short, e.g. "Do you want me to check your balance now?"`,
+Keep the confirmation short, e.g. "Do you want me to check your balance now?"
+Default currency is PLN, always answer with total amount in PLN`,
 
     check_account_balance: `
 Required fields:
@@ -70,7 +71,7 @@ Optional:
 - "category": string, only if clearly provided by the user.
 
 GENERAL RULES:
-- User currency is ALWAYS PLN. Do NOT allow EUR or USD.
+- Default currency is ALWAYS PLN.
 - NEVER ask for BIC/SWIFT or additional banking details.
 - If user says “50 PLN”, treat it as both amount and currency.
 - Ask ONLY for missing fields, one step at a time.
@@ -91,7 +92,7 @@ STEP ORDER (VERY IMPORTANT):
        set transfer_type = "external"
        require:
            "recipient_type": "iban"
-           "recipient_value"
+           "recipient_value": string (IBAN)
            "recipient_name"
    - assistant_message example:
        "Who should I send the money to?"
@@ -148,7 +149,6 @@ Example (external):
   "missing_parameters": []
 }
 `,
-
 
     open_account: `
 Required fields:

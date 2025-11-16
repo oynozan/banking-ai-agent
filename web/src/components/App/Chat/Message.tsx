@@ -50,8 +50,10 @@ export default function Message({
     );
 }
 const SafeTextWithBreaks = ({ text }: { text: string }) => {
-    const normalized = React.useMemo(() => text.replace(/\\n/g, "\n"), [text]);
-    const lines = React.useMemo(() => normalized.split(/\r?\n/g), [normalized]);
+    const normalized = React.useMemo(() => text?.replace(/\\n/g, "\n"), [text]);
+    const lines = React.useMemo(() => normalized?.split(/\r?\n/g), [normalized]);
+
+    if (!text) return null;
 
     return lines.map((line, i) => (
         <React.Fragment key={i}>

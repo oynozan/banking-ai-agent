@@ -4,6 +4,7 @@ export interface IUser {
     id: string;
     name: string;
     balance: number;
+    wallet?: string;
 }
 
 export interface ITransaction {

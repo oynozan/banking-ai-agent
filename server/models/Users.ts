@@ -5,6 +5,7 @@ export interface IUser extends Document {
     id: string;
     name: string;
     password: string;
+    wallet?: string;
     _id: Types.ObjectId;
 }
 
@@ -13,6 +14,7 @@ const UserSchema = new Schema<IUser>(
         id: { type: String, required: true, unique: true },
         password: { type: String, required: true },
         name: { type: String, required: true },
+        wallet: { type: String },
     },
     { versionKey: false },
 );

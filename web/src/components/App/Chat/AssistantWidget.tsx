@@ -2,7 +2,7 @@
 "use client";
 
 import clsx from "clsx";
-import { SendHorizonal, Mic, MicOff } from "lucide-react";
+import { SendHorizonal, Mic, MicOff, Loader2 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
 import Action from "./Action";
@@ -13,15 +13,11 @@ import WidgetHeader from "./WidgetHeader";
 import { useAssistantStore } from "@/lib/states";
 
 import "./chat.scss";
+import { Button } from "@/components/ui/button";
 
 type ChatItem =
     | { kind: "text"; isUser: boolean; text: string }
-    | { kind: "action"; id: string; text: string; status: "pending" | "accepted" | "cancelled" }
-    | {
-          kind: "suggestions";
-          field: string;
-          options: Array<{ label: string; value: string }>;
-      };
+    | { kind: "action"; id: string; text: string; status: "pending" | "accepted" | "cancelled" };
 
 export function AssistantWidget() {
     const { isOpen, toggle, isFullScreen, toggleFullScreen } = useAssistantStore();
@@ -32,8 +28,6 @@ export function AssistantWidget() {
     const audioRef = useRef<HTMLAudioElement | null>(null);
     const lastMessageIndexRef = useRef<number>(-1);
     const pendingAutoPlayRef = useRef<number | null>(null);
-    const pendingSuggestionsRef = useRef<Array<{ field: string; options: Array<{ label: string; value: string }> }> | null>(null);
-    const isSendingRef = useRef<boolean>(false);
 
     const [messages, setMessages] = useState<ChatItem[]>([]);
     const [isSending, setIsSending] = useState<boolean>(false);
@@ -65,73 +59,63 @@ export function AssistantWidget() {
     useEffect(() => {
         audioRef.current = new Audio();
         if (audioRef.current) {
-            audioRef.current.onended = () => setPlayingMessageIndex(null);
+            audioRef.current.onended = () => {
+                setPlayingMessageIndex(null);
+            };
+            audioRef.current.preload = "auto";
         }
+        return () => {
+            if (audioRef.current) {
+                audioRef.current.pause();
+                audioRef.current.src = "";
+            }
+        };
     }, []);
 
-    // AUTOSCROLL
     useEffect(() => {
-        chatBodyRef.current?.scrollTo({
-            top: chatBodyRef.current.scrollHeight,
-            behavior: "smooth",
-        });
+        if (messages.length === 0) return;
+        const lastIndex = messages.length - 1;
+
+        if (lastIndex <= lastMessageIndexRef.current) return;
+        const last = messages[lastIndex];
+
+        if (last.kind === "text" && !last.isUser) {
+            pendingAutoPlayRef.current = lastIndex;
+        } else {
+            lastMessageIndexRef.current = lastIndex;
+            pendingAutoPlayRef.current = null;
+        }
     }, [messages]);
 
-    // SPEECH RECOGNITION
-    useEffect(() => {
-        const check = setInterval(() => {
-            if (window?.p5 && (window.p5 as any).SpeechRec) {
-                clearInterval(check);
-                speechRecRef.current = new (window.p5 as any).SpeechRec("en-US", () => {
-                    if (speechRecRef.current?.resultValue && inputRef.current) {
-                        inputRef.current.value = speechRecRef.current.resultString;
-                    }
-                });
-                setSpeechReady(true);
-            }
-        }, 100);
-
-        return () => clearInterval(check);
-    }, []);
-
-    const toggleSpeechRecognition = () => {
-        if (!speechRecRef.current) return;
-
-        if (isListening) {
-            speechRecRef.current.stop();
-            setIsListening(false);
-        } else {
-            speechRecRef.current.start(true, false);
-            setIsListening(true);
-        }
-    };
-
-    // PLAY TTS
-    const playMessage = async (text: string, index: number) => {
-        const trimmed = text.trim();
+    // Play TTS for a message
+    const playMessage = async (text: string, messageIndex: number) => {
+        const trimmed = (text || "").trim();
         if (!trimmed) return;
-
         try {
             if (audioRef.current) {
                 audioRef.current.pause();
                 audioRef.current.currentTime = 0;
             }
-
-            setPlayingMessageIndex(index);
-
-            const resp = await fetch("/api/tts", {
+            setPlayingMessageIndex(messageIndex);
+            const response = await fetch("/api/tts", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ text: trimmed }),
             });
-
-            const blob = await resp.blob();
-            const url = URL.createObjectURL(blob);
-
-            audioRef.current!.src = url;
-            await audioRef.current!.play();
-        } catch (err) {
-            console.error("TTS error", err);
+            if (!response.ok) throw new Error("TTS generation failed");
+            const audioBlob = await response.blob();
+            const audioUrl = URL.createObjectURL(audioBlob);
+            if (audioRef.current) {
+                audioRef.current.src = audioUrl;
+                await new Promise<void>((resolve, reject) => {
+                    if (!audioRef.current) return reject(new Error("Audio element not available"));
+                    audioRef.current.onloadeddata = () => resolve();
+                    audioRef.current.onerror = () => reject(new Error("Audio loading failed"));
+                });
+                await audioRef.current.play();
+            }
+        } catch (e) {
+            console.error("Error playing TTS:", e);
             setPlayingMessageIndex(null);
         }
     };
@@ -144,218 +128,240 @@ export function AssistantWidget() {
         setPlayingMessageIndex(null);
     };
 
-    // SOCKET LISTENERS
+    // Initialize speech recognition
+    useEffect(() => {
+        // Wait for p5.speech to load
+        const checkP5Speech = setInterval(() => {
+            if (typeof window !== "undefined" && window.p5 && (window.p5 as any).SpeechRec) {
+                clearInterval(checkP5Speech);
+                initializeSpeech();
+            }
+        }, 100);
+
+        const initializeSpeech = () => {
+            try {
+                const gotSpeech = () => {
+                    if (speechRecRef.current && speechRecRef.current.resultValue) {
+                        const said = speechRecRef.current.resultString;
+                        if (said && inputRef.current) {
+                            inputRef.current.value = said;
+                        }
+                    }
+                };
+
+                // Create new p5.SpeechRec instance
+                speechRecRef.current = new (window.p5 as any).SpeechRec("en-US", gotSpeech);
+                setSpeechReady(true);
+                console.log("Speech recognition initialized");
+            } catch (error) {
+                console.error("Error initializing speech recognition:", error);
+            }
+        };
+
+        // Cleanup
+        return () => {
+            clearInterval(checkP5Speech);
+            if (speechRecRef.current) {
+                try {
+                    speechRecRef.current.stop();
+                } catch (e) {
+                    console.error("Error stopping speech recognition:", e);
+                }
+            }
+        };
+    }, []);
+
+    // Toggle speech recognition
+    const toggleSpeechRecognition = () => {
+        if (!speechRecRef.current) return;
+
+        try {
+            if (isListening) {
+                speechRecRef.current.stop();
+                setIsListening(false);
+                console.log("Stopped listening");
+            } else {
+                const continuous = true;
+                const interimResults = false;
+                speechRecRef.current.start(continuous, interimResults);
+                setIsListening(true);
+                console.log("Started listening");
+            }
+        } catch (error) {
+            console.error("Error toggling speech recognition:", error);
+            setIsListening(false);
+        }
+    };
+
     useEffect(() => {
         const handleStreamStart = () => {
             setIsSending(true);
-            isSendingRef.current = true;
             setMessages(prev => [...prev, { kind: "text", isUser: false, text: "" }]);
         };
 
         const handleStream = ({ token }: { token: string }) => {
             setMessages(prev => {
                 const next = [...prev];
-                const last = next[next.length - 1];
-
-                if (last?.kind === "text" && !last.isUser) {
-                    next[next.length - 1] = {
-                        ...last,
-                        text: last.text + token,
-                    };
+                const lastIndex = next.length - 1;
+                if (lastIndex >= 0 && next[lastIndex].kind === "text") {
+                    const last = next[lastIndex] as { kind: "text"; isUser: boolean; text: string };
+                    if (last.isUser) {
+                        next.push({ kind: "text", isUser: false, text: token });
+                        return next;
+                    }
+                    next[lastIndex] = { ...last, text: last.text + token };
+                } else {
+                    next.push({ kind: "text", isUser: false, text: token });
                 }
-
                 return next;
             });
         };
 
         const handleStreamEnd = () => {
             setIsSending(false);
-            isSendingRef.current = false;
-            
-            // Apply any pending suggestions after stream ends
-            // Use a small delay to ensure React has processed all stream updates
-            if (pendingSuggestionsRef.current) {
-                const suggestions = [...pendingSuggestionsRef.current]; // Copy the array
-                
-                setTimeout(() => {
-                    // Check if still pending (not applied by handleAccounts)
-                    if (!pendingSuggestionsRef.current) return;
-                    
-                    // Verify it's the same suggestions we captured
-                    const currentPending = pendingSuggestionsRef.current;
-                    if (currentPending.length !== suggestions.length || 
-                        currentPending[0]?.field !== suggestions[0]?.field) {
-                        return; // Different suggestions, let handleAccounts handle it
-                    }
-                    
-                    pendingSuggestionsRef.current = null;
-                    
-                    setMessages(prev => {
-                        // Remove any existing suggestions for the same fields to prevent duplicates
-                        const filtered = prev.filter(m => 
-                            !(m.kind === "suggestions" && suggestions.some(s => s.field === m.field))
-                        );
-
-                        // Find the last assistant text message with content
-                        let idx = -1;
-                        for (let i = filtered.length - 1; i >= 0; i--) {
-                            const msg = filtered[i];
-                            if (msg.kind === "text" && !msg.isUser && msg.text.trim().length > 0) {
-                                idx = i;
-                                break;
-                            }
+            // After stream completes, auto-play last assistant text if pending and auto-play is enabled
+            setTimeout(() => {
+                if (pendingAutoPlayRef.current !== null && autoPlayEnabled) {
+                    const indexToPlay = pendingAutoPlayRef.current;
+                    setMessages(current => {
+                        const msg = current[indexToPlay];
+                        if (msg && msg.kind === "text" && !msg.isUser && (msg.text || "").trim()) {
+                            lastMessageIndexRef.current = indexToPlay;
+                            // Play after state settled
+                            requestAnimationFrame(() => {
+                                playMessage(msg.text, indexToPlay);
+                            });
                         }
-
-                        if (idx === -1) {
-                            // No assistant message with content found, append suggestions to end
-                            return [...filtered, ...suggestions.map(s => ({
-                                kind: "suggestions" as const,
-                                field: s.field,
-                                options: s.options,
-                            }))];
-                        }
-
-                        // Insert suggestions immediately after the last assistant message
-                        const suggestionBlocks: ChatItem[] = suggestions.map(s => ({
-                            kind: "suggestions" as const,
-                            field: s.field,
-                            options: s.options,
-                        }));
-                        
-                        return [...filtered.slice(0, idx + 1), ...suggestionBlocks, ...filtered.slice(idx + 1)];
+                        return current;
                     });
-                }, 100); // Small delay to ensure React has processed all updates
-            }
+                    pendingAutoPlayRef.current = null;
+                } else if (pendingAutoPlayRef.current !== null) {
+                    // Just update the ref even if not playing
+                    lastMessageIndexRef.current = pendingAutoPlayRef.current;
+                    pendingAutoPlayRef.current = null;
+                }
+            }, 100);
         };
 
-        const handleAction = ({ data, id }: any) => {
-            const txt = data.assistant_message || "Action completed.";
-            setMessages(prev => [...prev, { kind: "text", isUser: false, text: txt }]);
-        };
-
-        const handleActionRequest = ({ id, data }: any) => {
+        const handleError = ({ message }: { message: string }) => {
+            setIsSending(false);
             setMessages(prev => [
                 ...prev,
-                { kind: "action", id, text: data.assistant_message, status: "pending" },
+                { kind: "text", isUser: false, text: `Error: ${message}` },
             ]);
         };
 
-        const handleActionCancelled = ({ id }: any) => {
+        type ActionPayload = {
+            intent?: string;
+            assistant_message?: string | null;
+            [k: string]: unknown;
+        };
+        const handleAction = ({ data, id }: { data: ActionPayload; id?: string }) => {
+            const assistantMessage =
+                (data && typeof data.assistant_message === "string" && data.assistant_message) ||
+                "Okay, I prepared that action.";
+            if (id) {
+                setMessages(prev =>
+                    prev.map(m =>
+                        m.kind === "action" && m.id === id
+                            ? { ...m, status: "accepted", text: assistantMessage }
+                            : m,
+                    ),
+                );
+            } else {
+                setMessages(prev => [
+                    ...prev,
+                    { kind: "text", isUser: false, text: assistantMessage },
+                ]);
+            }
+            setIsSending(false);
+        };
+
+        const handleActionRequest = ({ id, data }: { id: string; data: ActionPayload }) => {
+            const assistantMessage =
+                (data && typeof data.assistant_message === "string" && data.assistant_message) ||
+                "Do you want to proceed with this action?";
+            setMessages(prev => [
+                ...prev,
+                { kind: "action", id, text: assistantMessage, status: "pending" },
+            ]);
+            setIsSending(false);
+        };
+
+        const handleActionCancelled = ({ id }: { id: string }) => {
             setMessages(prev =>
                 prev.map(m =>
-                    m.kind === "action" && m.id === id ? { ...m, status: "cancelled" } : m
-                )
+                    m.kind === "action" && m.id === id ? { ...m, status: "cancelled" } : m,
+                ),
             );
+            setIsSending(false);
         };
 
-        // ⭐⭐⭐ FIXED LOGIC — SUGGESTIONS ALWAYS AFTER LAST ASSISTANT MESSAGE ⭐⭐⭐
-        const handleAccounts = ({ accounts }: any) => {
-            const suggestionData = {
-                field: "from_account",
-                options: accounts.map((acc: any) => ({
-                    label: `${acc.type} • PLN ${acc.balance}`,
-                    value: acc.iban,
-                })),
-            };
-
-            // Always queue suggestions - they will be applied after stream ends or with a delay
-            // This ensures React has processed all stream updates
-            pendingSuggestionsRef.current = [suggestionData];
-
-            // If currently streaming, wait for stream:end to apply
-            if (isSendingRef.current) {
-                return;
-            }
-
-            // If not streaming, apply after a small delay to ensure state is updated
-            setTimeout(() => {
-                if (!pendingSuggestionsRef.current) return; // Already applied
-
-                const suggestions = pendingSuggestionsRef.current;
-                pendingSuggestionsRef.current = null;
-
-                setMessages(prev => {
-                    // Remove any existing suggestions for the same fields to prevent duplicates
-                    const filtered = prev.filter(m => 
-                        !(m.kind === "suggestions" && suggestions.some(s => s.field === m.field))
-                    );
-
-                    // Find the last assistant text message with content
-                    let idx = -1;
-                    for (let i = filtered.length - 1; i >= 0; i--) {
-                        const msg = filtered[i];
-                        if (msg.kind === "text" && !msg.isUser && msg.text.trim().length > 0) {
-                            idx = i;
-                            break;
-                        }
-                    }
-
-                    if (idx === -1) {
-                        // No assistant message with content found, append to end
-                        return [...filtered, ...suggestions.map(s => ({
-                            kind: "suggestions" as const,
-                            field: s.field,
-                            options: s.options,
-                        }))];
-                    }
-
-                    // Insert suggestions immediately after the last assistant message
-                    const suggestionBlocks: ChatItem[] = suggestions.map(s => ({
-                        kind: "suggestions" as const,
-                        field: s.field,
-                        options: s.options,
-                    }));
-                    
-                    return [...filtered.slice(0, idx + 1), ...suggestionBlocks, ...filtered.slice(idx + 1)];
-                });
-            }, 100); // Small delay to ensure React has processed all updates
-        };
-
-        // SOCKET .on
         socket.on("chat:stream:start", handleStreamStart);
         socket.on("chat:stream", handleStream);
         socket.on("chat:stream:end", handleStreamEnd);
+        socket.on("chat:error", handleError);
         socket.on("chat:action", handleAction);
         socket.on("chat:action:request", handleActionRequest);
         socket.on("chat:action:cancelled", handleActionCancelled);
-        socket.on("chat:accounts", handleAccounts);
 
         return () => {
             socket.off("chat:stream:start", handleStreamStart);
             socket.off("chat:stream", handleStream);
             socket.off("chat:stream:end", handleStreamEnd);
+            socket.off("chat:error", handleError);
             socket.off("chat:action", handleAction);
             socket.off("chat:action:request", handleActionRequest);
             socket.off("chat:action:cancelled", handleActionCancelled);
-            socket.off("chat:accounts", handleAccounts);
         };
-    }, []);
+    }, [autoPlayEnabled]);
 
-    // HANDLE SUGGESTION CLICK
-    const handleSuggestionClick = (value: string, suggestionIndex: number) => {
-        // Remove the suggestion message and add the user's selection
-        setMessages(prev => {
-            const filtered = prev.filter((_, i) => i !== suggestionIndex);
-            return [...filtered, { kind: "text", isUser: true, text: value }];
-        });
+    useEffect(() => {
+        if (chatBodyRef.current) {
+            chatBodyRef.current.scrollTop = chatBodyRef.current.scrollHeight;
+        }
+    }, [messages]);
+
+    useEffect(() => {
+        if (!isSending && inputRef.current) {
+            inputRef.current.focus();
+        }
+    }, [isSending]);
+
+    const handleSubmit = (
+        e: React.FormEvent<HTMLFormElement> | React.MouseEvent<HTMLButtonElement> | null,
+        text?: string,
+    ) => {
+        let message = text;
+
+        if (e) {
+            e.preventDefault();
+            if (isSending) return;
+
+            const formData = new FormData(e.target as HTMLFormElement);
+            message = (formData.get("message") as string)?.toString()?.trim();
+            (e.target as HTMLFormElement).reset();
+        } else {
+            message = text!.trim();
+        }
+
+        setMessages(prev => [...prev, { kind: "text", isUser: true, text: message! }]);
         setIsSending(true);
-        socket.emit("chat:message", value);
-    };
+        socket.emit("chat:message", message!);
 
-    // SUBMIT
-    const handleSubmit = (e: React.FormEvent<HTMLFormElement>) => {
-        e.preventDefault();
-        if (isSending) return;
-
-        const fd = new FormData(e.target as HTMLFormElement);
-        const msg = fd.get("message")!.toString().trim();
-        if (!msg) return;
-
-        setMessages(prev => [...prev, { kind: "text", isUser: true, text: msg }]);
-        setIsSending(true);
-        socket.emit("chat:message", msg);
-
-        (e.target as HTMLFormElement).reset();
+        // Stop listening after sending
+        if (isListening && speechRecRef.current) {
+            try {
+                speechRecRef.current.stop();
+                setIsListening(false);
+            } catch (e) {
+                console.error("Error stopping speech:", e);
+            }
+        }
+        // Stop any currently playing TTS when sending a new message
+        if (playingMessageIndex !== null) {
+            stopMessage();
+        }
     };
 
     return (
@@ -363,106 +369,147 @@ export function AssistantWidget() {
             id="chat"
             className={clsx(
                 "fixed z-50",
-                isFullScreen ? "chat-screen-full top-0 left-0 w-screen h-screen" : "-bottom-10 right-4"
+                isFullScreen
+                    ? "chat-screen-full top-0 left-0 w-screen h-screen"
+                    : "-bottom-10 right-4",
             )}
         >
+            {/* CHAT WINDOW */}
             <div
                 className={clsx(
                     "flex flex-col shadow-xl overflow-hidden text-white",
                     isFullScreen
                         ? "w-full h-full rounded-none"
                         : "w-120 h-[min(900px,calc(100vh-32px))] rounded-xl border-border border",
-                    isOpen ? "block" : "hidden"
+                    isOpen ? "block" : "hidden",
                 )}
             >
+                {/* Header */}
                 <WidgetHeader
                     toggleFullScreen={toggleFullScreen}
                     isFullScreen={isFullScreen}
                     toggle={toggle}
                     autoPlayEnabled={autoPlayEnabled}
-                    toggleAutoPlay={() => setAutoPlayEnabled(v => !v)}
+                    toggleAutoPlay={() => setAutoPlayEnabled(prev => !prev)}
                 />
 
-                {/* BODY */}
-<div
-    ref={chatBodyRef}
-    className="chat-body flex-1 p-4 overflow-y-auto space-y-4 bg-[#f9ecd8]"
->
-    {!messages.length && (
-        <p className="text-black/80 text-center">
-            This is the start of your conversation.
-        </p>
-    )}
-
-    {messages.map((m, i) => (
-        <div key={i} className="w-full clear-both">
-            {m.kind === "suggestions" ? (
-                <div className="flex gap-2 flex-wrap mt-1">
-                    {m.options.map(opt => (
-                        <button
-                            key={opt.value}
-                            onClick={() => handleSuggestionClick(opt.value, i)}
-                            className="px-3 py-2 bg-yellow-400 text-black rounded-lg"
-                        >
-                            {opt.label}
-                        </button>
-                    ))}
+                {/* Chat Body */}
+                <div
+                    ref={chatBodyRef}
+                    className={`chat-body flex-1 p-4 overflow-y-auto space-y-4 bg-zinc-50`}
+                >
+                    {!messages.length && (
+                        <div className="flex justify-center items-center h-full">
+                            <p className="text-black/80 text-center px-4">
+                                This is the start of your conversation with banking assistant.
+                            </p>
+                        </div>
+                    )}
+                    {messages.map((m, i) =>
+                        m.kind === "text" ? (
+                            <Message
+                                key={i}
+                                message={m.text}
+                                isUser={m.isUser}
+                                isPlaying={playingMessageIndex === i}
+                                onPlay={() => playMessage(m.text, i)}
+                                onStop={stopMessage}
+                            />
+                        ) : (
+                            <Action
+                                key={m.id}
+                                id={m.id}
+                                text={m.text}
+                                status={m.status}
+                                isPlaying={playingMessageIndex === i}
+                                onPlay={() => playMessage(m.text, i)}
+                                onStop={stopMessage}
+                            />
+                        ),
+                    )}
+                    {isSending && (
+                        <div className="flex items-center gap-2 text-gray-500 px-1">
+                            <Loader2 className="w-4 h-4 animate-spin" />
+                            <span className="text-sm">Waiting for assistant…</span>
+                        </div>
+                    )}
                 </div>
-            ) : m.kind === "text" ? (
-                <Message
-                    message={m.text}
-                    isUser={m.isUser}
-                    isPlaying={playingMessageIndex === i}
-                    onPlay={() => playMessage(m.text, i)}
-                    onStop={stopMessage}
-                />
-            ) : (
-                <Action
-                    id={m.id}
-                    text={m.text}
-                    status={m.status}
-                    isPlaying={playingMessageIndex === i}
-                    onPlay={() => playMessage(m.text, i)}
-                    onStop={stopMessage}
-                />
-            )}
-        </div>
-    ))}
-</div>
 
-                {/* INPUT */}
-                <div className="bg-card relative h-16 flex items-center">
-                    <form onSubmit={handleSubmit} className="flex items-center gap-2 w-full px-3">
+                {!messages.length && (
+                    <div className="suggestions w-full p-2 bg-card border-b border-border overflow-y-auto">
+                        <div className="gap-2 flex items-center justify-start">
+                            <Button
+                                variant="gold"
+                                onClick={() => handleSubmit(null, "What is my balance?")}
+                                className="p-1.5 h-8"
+                            >
+                                What is my balance?
+                            </Button>
+                            <Button
+                                variant="gold"
+                                onClick={() => handleSubmit(null, "Show me my account list")}
+                                className="p-1.5 h-8"
+                            >
+                                Show me my account list
+                            </Button>
+                            <Button
+                                variant="gold"
+                                onClick={() => handleSubmit(null, "I wanna see my accounts")}
+                                className="p-1.5 h-8"
+                            >
+                                I wanna see my accounts
+                            </Button>
+                        </div>
+                    </div>
+                )}
+
+                {/* Chat Input */}
+                <div className="bg-card relative">
+                    <form onSubmit={e => handleSubmit(e)} className="flex items-center gap-2">
                         <input
                             ref={inputRef}
+                            autoFocus={isFullScreen}
                             type="text"
                             name="message"
-                            placeholder="Type or speak..."
-                            className="flex-1 p-4 pr-24 bg-card rounded-xl text-white"
+                            placeholder="Type your message or use voice..."
+                            className="flex-1 p-4 pr-24 bg-card rounded-xl rounded-t-none text-white placeholder:text-gray-500 outline-none!"
                             disabled={isSending}
                         />
 
-                        {/* MIC */}
+                        {/* Microphone Button */}
                         {speechReady && (
                             <button
                                 type="button"
                                 onClick={toggleSpeechRecognition}
                                 className={clsx(
-                                    "absolute right-14 top-1/2 -translate-y-1/2 p-2 rounded-lg",
-                                    isListening ? "bg-red-500 text-white" : "text-gray-400 hover:text-gold"
+                                    "absolute right-14 top-1/2 -translate-y-1/2 p-2 rounded-lg transition-colors",
+                                    isListening
+                                        ? "bg-red-500 text-white animate-pulse"
+                                        : "bg-transparent text-gray-400 hover:text-gold",
                                 )}
+                                disabled={isSending}
+                                aria-label={isListening ? "Stop voice input" : "Start voice input"}
                             >
-                                {isListening ? <MicOff /> : <Mic />}
+                                {isListening ? (
+                                    <MicOff className="w-5 h-5" />
+                                ) : (
+                                    <Mic className="w-5 h-5" />
+                                )}
                             </button>
                         )}
 
-                        {/* SEND */}
+                        {/* Send Button */}
                         <button
                             type="submit"
-                            className="absolute right-3 top-1/2 -translate-y-1/2 p-2 text-gold"
+                            className="absolute right-2 top-1/2 -translate-y-1/2 p-2 rounded-lg bg-transparent text-gold"
                             disabled={isSending}
+                            aria-label="Send message"
                         >
-                            <SendHorizonal className="w-5 h-5" />
+                            {isSending ? (
+                                <Loader2 className="w-5 h-5 animate-spin" />
+                            ) : (
+                                <SendHorizonal className="w-5 h-5" />
+                            )}
                         </button>
                     </form>
                 </div>

@@ -32,22 +32,25 @@ type Account = {
 };
 
 export default function AccountsPage() {
-    const {
-        data,
-        refetch,
-        isFetching,
-        isLoading,
-    } = useQuery({
+    const { data, refetch, isFetching, isLoading } = useQuery({
         queryKey: ["accounts-list"],
         queryFn: async () => {
             const accessToken =
                 typeof window !== "undefined" ? localStorage.getItem("accessToken") : null;
-            const headers: HeadersInit = accessToken ? { Authorization: `Bearer ${accessToken}` } : {};
-            const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/accounts`, { headers });
-            if (!res.ok) {
-                throw new Error("Failed to fetch accounts");
+            const headers: HeadersInit = accessToken
+                ? { Authorization: `Bearer ${accessToken}` }
+                : {};
+            try {
+                const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/accounts`, { headers });
+                if (!res.ok) {
+                    toast.error("Failed to fetch accounts");
+                    return { accounts: [] } as { accounts?: Account[] };
+                }
+                return (await res.json()) as { accounts?: Account[] };
+            } catch {
+                toast.error("Failed to fetch accounts");
+                return { accounts: [] } as { accounts?: Account[] };
             }
-            return res.json() as Promise<{ accounts?: Account[] }>;
         },
     });
 
@@ -79,13 +82,15 @@ export default function AccountsPage() {
                         <p className="text-gray-400">You don&apos;t have any accounts yet.</p>
                     ) : (
                         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                            {accounts.map((acc) => (
+                            {accounts.map(acc => (
                                 <article
                                     key={acc.iban}
                                     className="rounded-sm border border-gold/30 bg-white/3 p-4 hover:border-gold/45 transition-all"
                                 >
                                     <p className="text-sm text-gray-400">Account Name</p>
-                                    <p className="text-white font-semibold text-lg mb-1">{acc.name}</p>
+                                    <p className="text-white font-semibold text-lg mb-1">
+                                        {acc.name}
+                                    </p>
                                     <p className="text-sm text-gray-400">IBAN</p>
                                     <p className="text-white font-medium break-all">{acc.iban}</p>
                                     <Separator className="my-3" />
@@ -102,7 +107,8 @@ export default function AccountsPage() {
                                         </div>
                                     </div>
                                     <p className="text-xs text-gray-500 mt-3">
-                                        Created {new Date(acc.createdAt).toLocaleDateString("en-US", {
+                                        Created{" "}
+                                        {new Date(acc.createdAt).toLocaleDateString("en-US", {
                                             year: "numeric",
                                             month: "short",
                                             day: "numeric",
@@ -150,7 +156,7 @@ function CreateAccountCard({ onCreated }: { onCreated: () => Promise<void> | voi
             setCurrency("");
             await onCreated();
         },
-        onError: (error) => {
+        onError: error => {
             const message = error instanceof Error ? error.message : "An unexpected error occurred";
             toast.error(message);
         },
@@ -170,25 +176,25 @@ function CreateAccountCard({ onCreated }: { onCreated: () => Promise<void> | voi
     return (
         <section>
             <h2 className="text-xl text-white mb-2 mt-2">Create New Account</h2>
-            <div className="bg-card rounded-sm border border-gold/30 transition-all shadow-xl p-6">
-                <div className="grid gap-4 md:grid-cols-3">
-                    <div className="flex flex-col gap-2">
-                        <Label htmlFor="account-name" className="text-white">Account name</Label>
-                        <Input
-                            id="account-name"
-                            type="text"
-                            placeholder="e.g., Main Savings"
-                            value={name}
-                            onChange={(e) => setName(e.target.value)}
-                            className="w-full"
-                        />
-                    </div>
+            <div className="flex flex-col gap-6 bg-card rounded-sm border border-gold/30 transition-all shadow-xl p-6">
+                <div className="flex flex-col gap-2">
+                    <Label htmlFor="account-name" className="text-white">
+                        Account name
+                    </Label>
+                    <Input
+                        id="account-name"
+                        type="text"
+                        placeholder="e.g., Main Savings"
+                        value={name}
+                        onChange={e => setName(e.target.value)}
+                        className="w-full"
+                    />
+                </div>
+                <Separator />
+                <div className="grid gap-4 md:grid-cols-2">
                     <div className="flex flex-col gap-2">
                         <p className="text-white">Account type</p>
-                        <Select
-                            value={type}
-                            onValueChange={(v: AccountType) => setType(v)}
-                        >
+                        <Select value={type} onValueChange={(v: AccountType) => setType(v)}>
                             <SelectTrigger className="w-full">
                                 <SelectValue placeholder="Select type" />
                             </SelectTrigger>
@@ -204,10 +210,7 @@ function CreateAccountCard({ onCreated }: { onCreated: () => Promise<void> | voi
                     </div>
                     <div className="flex flex-col gap-2">
                         <p className="text-white">Currency</p>
-                        <Select
-                            value={currency}
-                            onValueChange={(v: Currency) => setCurrency(v)}
-                        >
+                        <Select value={currency} onValueChange={(v: Currency) => setCurrency(v)}>
                             <SelectTrigger className="w-full">
                                 <SelectValue placeholder="Select currency" />
                             </SelectTrigger>
@@ -223,7 +226,7 @@ function CreateAccountCard({ onCreated }: { onCreated: () => Promise<void> | voi
                     </div>
                 </div>
 
-                <Separator className="my-6" />
+                <Separator />
 
                 <div className="w-full flex items-end justify-end">
                     <Button disabled={!canCreate} onClick={handleCreate}>
@@ -244,4 +247,3 @@ function CreateAccountCard({ onCreated }: { onCreated: () => Promise<void> | voi
         </section>
     );
 }
-

@@ -1,14 +1,18 @@
 "use client";
 
 import Link from "next/link";
-import { LogOut } from "lucide-react";
+import { useState } from "react";
+import { LogOut, Settings } from "lucide-react";
 import { useRouter } from "next/navigation";
 
 import { useUser } from "@/lib/states";
+import SettingsDialog from "../Settings";
 
 export default function Header() {
     const router = useRouter();
     const { logout } = useUser();
+
+    const [isSettingsOpen, setIsSettingsOpen] = useState(false);
 
     return (
         <header className="border-b border-border flex justify-center">
@@ -36,7 +40,13 @@ export default function Header() {
                         My Accounts
                     </Link>
                 </div>
-                <div className="flex gap-2">
+                <div className="flex items-center gap-6">
+                    <Settings
+                        className="cursor-pointer w-5 h-5 text-white/70 hover:text-white transition-colors"
+                        onClick={() => {
+                            setIsSettingsOpen(true);
+                        }}
+                    />
                     <LogOut
                         className="cursor-pointer w-5 h-5 text-white/70 hover:text-white transition-colors"
                         onClick={() => {
@@ -47,6 +57,7 @@ export default function Header() {
                     />
                 </div>
             </div>
+            <SettingsDialog isOpen={isSettingsOpen} onOpenChange={setIsSettingsOpen} />
         </header>
     );
 }
