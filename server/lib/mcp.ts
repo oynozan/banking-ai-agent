@@ -127,18 +127,13 @@ export class MCP {
             };
         }
 
-        const newAcc = await AccountLib.createAccount({
+        const newAccount = await AccountLib.createAccount({
             user: { id: userId },
             name: accountName.trim(),
             type,
             currency,
         });
 
-        const reply = await ai.summarizeAction(
-            "open_account",
-            { iban: newAcc.iban, type: newAcc.type, currency: newAcc.currency },
-            history.slice(-maxHistory)
-        );
         if (!newAccount) {
             return {
                 event: "chat:error",
@@ -159,7 +154,7 @@ export class MCP {
             event: "chat:action",
             payload: {
                 id,
-                data: { ...action, iban: newAcc.iban, assistant_message: reply },
+                data: { ...action, result, assistant_message: reply },
             },
             assistantMessage: reply,
         };
@@ -312,9 +307,17 @@ export class MCP {
             name: action.contact_name,
         });
 
+        if (!created) {
+            return {
+                event: "chat:error",
+                payload: { message: "Failed to add contact" },
+            };
+        }
+
+        const result = { alias: created.alias, name: created.name, iban: created.iban };
         const reply = await ai.summarizeAction(
             "add_contact",
-            { alias: created.alias, iban: created.iban },
+            result,
             history.slice(-maxHistory)
         );
 

@@ -17,20 +17,41 @@ export default async function plnToOthers(amount: number) {
         return cache.data;
     }
 
-    const response = await fetch(`${process.env.EXCHANGE_API_ENDPOINT}/PLN`);
-    const data = await response.json();
-
-    if (data?.success) {
-        const returnData = {
+    // Check if exchange API endpoint is configured
+    const apiEndpoint = process.env.EXCHANGE_API_ENDPOINT;
+    if (!apiEndpoint) {
+        // Fallback if API endpoint is not configured
+        return {
             PLN: amount,
-            EUR: data.rates.EUR * amount,
-            USD: data.rates.USD * amount,
+            EUR: amount * 0.24,
+            USD: amount * 0.27,
         };
-        cache.data = returnData;
-        cache.lastUpdated = Date.now();
-        return returnData;
-    } else {
-        // fallback
+    }
+
+    try {
+        const response = await fetch(`${apiEndpoint}/PLN`);
+        const data = await response.json();
+
+        if (data?.success) {
+            const returnData = {
+                PLN: amount,
+                EUR: data.rates.EUR * amount,
+                USD: data.rates.USD * amount,
+            };
+            cache.data = returnData;
+            cache.lastUpdated = Date.now();
+            return returnData;
+        } else {
+            // fallback
+            return {
+                PLN: amount,
+                EUR: amount * 0.24,
+                USD: amount * 0.27,
+            };
+        }
+    } catch (error) {
+        // Fallback on error
+        console.error("[Exchange] API error:", error);
         return {
             PLN: amount,
             EUR: amount * 0.24,
